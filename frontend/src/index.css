@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant light (&:where(.light, .light *));
 @theme {
   --font-sans: 'Inter', sans-serif;
   --font-display: 'Outfit', sans-serif;
@@ -18,10 +19,15 @@
   --animate-float-medium: float 5s ease-in-out infinite;
   --animate-pulse-glow: pulseGlow 3s ease-in-out infinite;
   --animate-typing: typing 1.4s infinite;
+  --animate-marquee: marquee 30s linear infinite;
 
   @keyframes float {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-15px); }
+  }
+  @keyframes marquee {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
   }
   @keyframes pulseGlow {
     0%, 100% { opacity: 0.6; filter: drop-shadow(0 0 15px rgba(139, 92, 246, 0.4)); }
@@ -153,4 +159,44 @@ h1, h2, h3, h4, h5, h6 {
 
 .animate-glow-border {
   animation: border-glow 4s infinite;
+}
+
+/* Pure-CSS Starry Sky background texture */
+.stars-bg {
+  background-image: 
+    radial-gradient(1.5px 1.5px at 20px 30px, #ffffff, rgba(0,0,0,0)),
+    radial-gradient(2px 2px at 40px 70px, #ffffff, rgba(0,0,0,0)),
+    radial-gradient(1px 1px at 90px 10px, #ffffff, rgba(0,0,0,0)),
+    radial-gradient(1.5px 1.5px at 150px 80px, #eedb6c, rgba(0,0,0,0)),
+    radial-gradient(2px 2px at 250px 140px, #a5b4fc, rgba(0,0,0,0)),
+    radial-gradient(1px 1px at 310px 210px, #ffffff, rgba(0,0,0,0)),
+    radial-gradient(1.5px 1.5px at 400px 50px, #ffffff, rgba(0,0,0,0)),
+    radial-gradient(2px 2px at 480px 120px, #f472b6, rgba(0,0,0,0));
+  background-size: 550px 550px;
+  background-repeat: repeat;
+  opacity: 0.28;
+}
+
+.light .stars-bg {
+  opacity: 0.05;
+}
+
+/* Liquid fluid animation keyframes */
+@keyframes fluidShift {
+  0%, 100% {
+    border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%;
+    transform: rotate(0deg) scale(1);
+  }
+  33% {
+    border-radius: 70% 30% 52% 48% / 60% 40% 60% 40%;
+    transform: rotate(120deg) scale(1.02);
+  }
+  66% {
+    border-radius: 50% 50% 30% 70% / 40% 60% 40% 60%;
+    transform: rotate(240deg) scale(0.98);
+  }
+}
+
+.liquid-metallic-orb {
+  animation: fluidShift 12s ease-in-out infinite;
 }

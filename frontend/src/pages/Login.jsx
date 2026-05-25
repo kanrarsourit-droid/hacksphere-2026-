@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Sparkles, Mail, Lock, User, ArrowRight, AlertCircle } from 'lucide-react';
 import GlassCard from '../components/GlassCard';
-import { registerUser, loginUser, loginWithGoogle } from '../services/db';
+import { registerUser, loginUser, loginWithGoogle, updateUserProfile } from '../services/db';
 
 /**
  * SkillSync AI - Dynamic Login and Signup Page
@@ -10,6 +10,7 @@ const Login = ({ onLoginSuccess }) => {
   const [isSignup, setIsSignup] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [role, setRole] = useState("student"); // 'student' or 'teacher'
   
   // Form values
   const [name, setName] = useState("");
@@ -49,8 +50,8 @@ const Login = ({ onLoginSuccess }) => {
 
     try {
       if (isSignup) {
-        // Register user
-        const result = await registerUser(email, password, name);
+        // Register user with their selected role
+        const result = await registerUser(email, password, name, role);
         onLoginSuccess(result.user);
       } else {
         // Login user
@@ -83,8 +84,15 @@ const Login = ({ onLoginSuccess }) => {
     setLoading(true);
     setError("");
     try {
-      const result = await loginWithGoogle();
-      onLoginSuccess(result.user);
+      const result = await loginWithGoogle(role);
+      let user = result.user;
+      
+      // If the authenticated user profile doesn't have a role yet, assign the picker role!
+      if (!user.role) {
+        user.role = role;
+        await updateUserProfile(user.uid, { role });
+      }
+      onLoginSuccess(user);
     } catch (err) {
       console.error(err);
       setError("Google Login failed. Please try again.");
@@ -110,7 +118,10 @@ const Login = ({ onLoginSuccess }) => {
               <Sparkles className="w-5 h-5 text-white" />
             </div>
             <h2 className="text-2xl font-bold tracking-tight text-white dark:text-white light:text-indigo-950 mt-2">
-              {isSignup ? "Create Student Account" : "Welcome Back"}
+              {isSignup 
+                ? (role === "student" ? "Create Student Account 🎓" : "Create Teacher Console 👨‍🏫") 
+                : (role === "student" ? "Welcome Student" : "Welcome Teacher")
+              }
             </h2>
             <p className="text-xs text-slate-400 dark:text-slate-400 light:text-zinc-500 text-center">
               {isSignup 
@@ -118,6 +129,37 @@ const Login = ({ onLoginSuccess }) => {
                 : "Sign in to access your notes, quizzes, and AI tutor."
               }
             </p>
+          </div>
+
+          {/* ROLE SELECTOR DOUBLE SWITCH */}
+          <div className="flex flex-col gap-1.5 mb-5">
+            <label className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 light:text-zinc-500 pl-1 text-center">
+              Select Your Portal Role
+            </label>
+            <div className="grid grid-cols-2 gap-2 p-1 bg-space-950/60 dark:bg-space-950/50 light:bg-indigo-50/50 border border-white/10 dark:border-white/5 light:border-zinc-200 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setRole("student")}
+                className={`py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
+                  role === "student"
+                    ? "bg-purple-600 text-white shadow-[0_0_12px_rgba(139,92,246,0.4)]"
+                    : "text-slate-400 hover:text-white hover:bg-white/3"
+                }`}
+              >
+                Student 🎓
+              </button>
+              <button
+                type="button"
+                onClick={() => setRole("teacher")}
+                className={`py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
+                  role === "teacher"
+                    ? "bg-purple-600 text-white shadow-[0_0_12px_rgba(139,92,246,0.4)]"
+                    : "text-slate-400 hover:text-white hover:bg-white/3"
+                }`}
+              >
+                Teacher Portal 👨‍🏫
+              </button>
+            </div>
           </div>
 
           {/* Glowing error message banner */}
@@ -191,7 +233,10 @@ const Login = ({ onLoginSuccess }) => {
                 <div className="w-5 h-5 rounded-full border-2 border-t-white border-r-transparent border-b-white border-l-transparent animate-spin" />
               ) : (
                 <>
-                  {isSignup ? "Create Free Account" : "Sign In"}
+                  {isSignup 
+                    ? (role === "student" ? "Create Free Account" : "Register Teacher Console") 
+                    : "Sign In"
+                  }
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

@@ -12,6 +12,10 @@ import QuizGenerator from './pages/QuizGenerator';
 import DoubtSolver from './pages/DoubtSolver';
 import Roadmap from './pages/Roadmap';
 import Profile from './pages/Profile';
+import PortalHome from './pages/PortalHome';
+import Features from './pages/Features';
+import Subjects from './pages/Subjects';
+import AITools from './pages/AITools';
 
 // Services
 import { listenToAuthChanges, logoutUser } from './services/db';
@@ -26,8 +30,8 @@ function App() {
   // Navigation State: 'home' | 'login' | 'dashboard'
   const [currentPage, setCurrentPage] = useState('home');
   
-  // Dashboard Sub-Tab State: 'dashboard' | 'notes' | 'quiz' | 'chatbot' | 'roadmap' | 'profile'
-  const [activeTab, setActiveTab] = useState('dashboard');
+  // Dashboard Sub-Tab State: 'home' | 'dashboard' | 'notes' | 'quiz' | 'chatbot' | 'roadmap' | 'profile'
+  const [activeTab, setActiveTab] = useState('home');
   
   // User Session State
   const [activeUser, setActiveUser] = useState(null);
@@ -45,6 +49,7 @@ function App() {
       // Auto-transition to dashboard if user logs in
       if (user) {
         setCurrentPage('dashboard');
+        setActiveTab('home');
       } else {
         setCurrentPage('home');
       }
@@ -59,7 +64,7 @@ function App() {
       await logoutUser();
       setActiveUser(null);
       setCurrentPage('home');
-      setActiveTab('dashboard');
+      setActiveTab('home');
     } catch (e) {
       console.error("Logout failed:", e);
     }
@@ -69,7 +74,7 @@ function App() {
   const handleLoginSuccess = (user) => {
     setActiveUser(user);
     setCurrentPage('dashboard');
-    setActiveTab('dashboard');
+    setActiveTab('home');
   };
 
   // Deep Link Trigger: Start Quiz from Notes Upload page
@@ -113,6 +118,17 @@ function App() {
 
         {/* Main Work Area Panel */}
         <main className="flex-1 md:ml-64 px-6 md:px-8 py-20 md:py-8 min-h-screen overflow-y-auto max-w-7xl mx-auto w-full relative">
+          {activeTab === 'home' && (
+            <PortalHome 
+              activeUser={activeUser} 
+              onTabChange={(tabId) => {
+                setActiveTab(tabId);
+                // Clear deep-link quiz context if student clicks on a different tab manually
+                if (tabId !== 'quiz') setInitialQuizNote(null);
+              }} 
+            />
+          )}
+
           {activeTab === 'dashboard' && (
             <Dashboard 
               activeUser={activeUser} 
@@ -150,7 +166,12 @@ function App() {
           )}
           
           {activeTab === 'profile' && (
-            <Profile activeUser={activeUser} />
+            <Profile 
+              activeUser={activeUser} 
+              onUpdateUser={(updatedFields) => {
+                setActiveUser(prev => ({ ...prev, ...updatedFields }));
+              }}
+            />
           )}
         </main>
       </div>
@@ -166,7 +187,7 @@ function App() {
         activeUser={activeUser} 
         onNavigate={(page) => {
           setCurrentPage(page);
-          setActiveTab('dashboard');
+          setActiveTab('home');
         }} 
       />
 
@@ -176,7 +197,34 @@ function App() {
           <Home 
             onNavigate={(page) => {
               setCurrentPage(page);
-              setActiveTab('dashboard');
+              setActiveTab('home');
+            }} 
+          />
+        )}
+
+        {currentPage === 'features' && (
+          <Features 
+            onNavigate={(page) => {
+              setCurrentPage(page);
+              setActiveTab('home');
+            }} 
+          />
+        )}
+
+        {currentPage === 'subjects' && (
+          <Subjects 
+            onNavigate={(page) => {
+              setCurrentPage(page);
+              setActiveTab('home');
+            }} 
+          />
+        )}
+
+        {currentPage === 'aitools' && (
+          <AITools 
+            onNavigate={(page) => {
+              setCurrentPage(page);
+              setActiveTab('home');
             }} 
           />
         )}
@@ -190,7 +238,7 @@ function App() {
       <Footer 
         onNavigate={(page) => {
           setCurrentPage(page);
-          setActiveTab('dashboard');
+          setActiveTab('home');
         }} 
       />
     </div>

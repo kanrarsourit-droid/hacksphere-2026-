@@ -54,7 +54,7 @@ export const isFirebaseActive = checkFirebaseStatus();
 /**
  * Sign up a new user using Email and Password
  */
-export const registerUser = async (email, password, displayName) => {
+export const registerUser = async (email, password, displayName, role = 'student') => {
   if (isFirebaseActive) {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -66,6 +66,7 @@ export const registerUser = async (email, password, displayName) => {
         email: user.email,
         displayName: displayName || user.email.split('@')[0],
         photoURL: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
+        role,
         streak: 1,
         lastStudyDate: new Date().toISOString().split('T')[0],
         notesCount: 0,
@@ -93,6 +94,7 @@ export const registerUser = async (email, password, displayName) => {
       email,
       displayName: displayName || email.split('@')[0],
       photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${uid}`,
+      role,
       streak: 1,
       lastStudyDate: new Date().toISOString().split('T')[0],
       notesCount: 0,
@@ -159,24 +161,26 @@ export const loginUser = async (email, password) => {
 /**
  * Single Sign-On with Google
  */
-export const loginWithGoogle = async () => {
+export const loginWithGoogle = async (role = 'student') => {
   if (isFirebaseActive) {
+    let authenticatedUser = null;
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
+      authenticatedUser = result.user;
       
       // Check if user profile already exists
-      const userDoc = doc(db, "users", user.uid);
+      const userDoc = doc(db, "users", authenticatedUser.uid);
       const profileSnap = await getDoc(userDoc);
       
       let userProfile = {};
       if (!profileSnap.exists()) {
         // Initialize new Google user profile
         userProfile = {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName || user.email.split('@')[0],
-          photoURL: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
+          uid: authenticatedUser.uid,
+          email: authenticatedUser.email,
+          displayName: authenticatedUser.displayName || authenticatedUser.email.split('@')[0],
+          photoURL: authenticatedUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${authenticatedUser.uid}`,
+          role,
           streak: 1,
           lastStudyDate: new Date().toISOString().split('T')[0],
           notesCount: 0,
@@ -187,22 +191,67 @@ export const loginWithGoogle = async () => {
         await setDoc(userDoc, userProfile);
       } else {
         userProfile = updateStreak(profileSnap.data());
+        // Ensure role is preserved or updated if set
+        if (!userProfile.role) {
+          userProfile.role = role;
+        }
         await updateDoc(userDoc, userProfile);
       }
       
       return { success: true, user: userProfile };
     } catch (error) {
-      console.error("Google Auth Error: ", error);
-      throw error;
+      console.warn("Firestore Database error during Google login. Falling back to authentic local credential session.", error);
+      
+      // CHECK IF WE HAVE ACTIVE GOOGLE CREDENTIALS IN THE SESSION
+      const user = authenticatedUser || auth.currentUser;
+      if (user) {
+        const realProfile = {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || user.email.split('@')[0],
+          photoURL: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
+          role,
+          streak: 1,
+          lastStudyDate: new Date().toISOString().split('T')[0],
+          notesCount: 0,
+          quizCount: 0,
+          avgQuizScore: 0,
+          createdAt: new Date().toISOString()
+        };
+        
+        // Save in local active session so they log in as themselves!
+        localStorage.setItem('active_mock_session', JSON.stringify(realProfile));
+        return { success: true, user: realProfile };
+      }
+      
+      // Complete popup cancellation fallback
+      const mockUid = 'mock_google_' + Math.random().toString(36).substr(2, 9);
+      const mockProfile = {
+        uid: mockUid,
+        email: "google_teacher@gmail.com",
+        displayName: role === 'teacher' ? "Educator Professor 👨‍🏫" : "Google Scholar 🎓",
+        photoURL: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${mockUid}`,
+        role,
+        streak: 3,
+        lastStudyDate: new Date().toISOString().split('T')[0],
+        notesCount: 2,
+        quizCount: 1,
+        avgQuizScore: 90,
+        createdAt: new Date().toISOString()
+      };
+      
+      localStorage.setItem('active_mock_session', JSON.stringify(mockProfile));
+      return { success: true, user: mockProfile };
     }
   } else {
     // LOCAL STORAGE FALLBACK
     const mockUid = 'mock_google_' + Math.random().toString(36).substr(2, 9);
     const mockProfile = {
       uid: mockUid,
-      email: "google_student@gmail.com",
-      displayName: "Google Scholar 🎓",
+      email: "google_teacher@gmail.com",
+      displayName: role === 'teacher' ? "Educator Professor 👨‍🏫" : "Google Scholar 🎓",
       photoURL: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${mockUid}`,
+      role,
       streak: 3,
       lastStudyDate: new Date().toISOString().split('T')[0],
       notesCount: 2,
@@ -226,6 +275,53 @@ export const logoutUser = async () => {
     localStorage.removeItem('active_mock_session');
   }
   return { success: true };
+};
+
+/**
+ * Update user profile details (displayName, photoURL, bio, phone, hobbies)
+ */
+export const updateUserProfile = async (userId, updatedFields) => {
+  if (isFirebaseActive && !userId.startsWith('mock_')) {
+    try {
+      const userDoc = doc(db, "users", userId);
+      await updateDoc(userDoc, updatedFields);
+      
+      // Update local storage representation if active
+      const mockSession = localStorage.getItem('active_mock_session');
+      if (mockSession) {
+        const parsed = JSON.parse(mockSession);
+        if (parsed.uid === userId) {
+          const updated = { ...parsed, ...updatedFields };
+          localStorage.setItem('active_mock_session', JSON.stringify(updated));
+        }
+      }
+      return { success: true, user: updatedFields };
+    } catch (e) {
+      console.warn("Failed to update cloud profile. Updating locally.", e);
+      return updateLocalProfile(userId, updatedFields);
+    }
+  } else {
+    return updateLocalProfile(userId, updatedFields);
+  }
+};
+
+const updateLocalProfile = (userId, updatedFields) => {
+  const activeSession = JSON.parse(localStorage.getItem('active_mock_session') || '{}');
+  if (activeSession.uid === userId) {
+    const updated = { ...activeSession, ...updatedFields };
+    localStorage.setItem('active_mock_session', JSON.stringify(updated));
+    
+    // Also update in mock users list
+    const mockUsers = JSON.parse(localStorage.getItem('mock_users') || '[]');
+    const index = mockUsers.findIndex(u => u.profile.uid === userId);
+    if (index !== -1) {
+      mockUsers[index].profile = updated;
+      localStorage.setItem('mock_users', JSON.stringify(mockUsers));
+    }
+    
+    return { success: true, user: updated };
+  }
+  return { success: false };
 };
 
 /**
@@ -270,8 +366,10 @@ export const listenToAuthChanges = (callback) => {
 /**
  * Upload a note (PDF or Image) and record metadata in Firestore
  */
-export const uploadStudyNote = async (file, fileName, subject, userId) => {
+export const uploadStudyNote = async (file, fileName, subject, userId, userRole = 'student', userName = '') => {
   const uploadDate = new Date().toISOString();
+  const isPublic = userRole === 'teacher';
+  const teacherName = isPublic ? (userName || 'Class Teacher 👨‍🏫') : '';
   
   if (isFirebaseActive) {
     try {
@@ -289,7 +387,9 @@ export const uploadStudyNote = async (file, fileName, subject, userId) => {
         uploadedBy: userId,
         uploadDate,
         summary: '', // Empty initially, filled by Gemini later
-        keyTakeaways: []
+        keyTakeaways: [],
+        isPublic,
+        teacherName
       };
       
       const docRef = await addDoc(collection(db, "notes"), noteData);
@@ -302,15 +402,15 @@ export const uploadStudyNote = async (file, fileName, subject, userId) => {
       console.error("Firebase Note Upload Error: ", error);
       // If Firestore or Storage rules are blocked, fall back to Local Storage
       console.warn("Storage is blocked in dashboard. Gracefully writing note to local system.");
-      return uploadNoteLocally(file, fileName, subject, userId, uploadDate);
+      return uploadNoteLocally(file, fileName, subject, userId, uploadDate, isPublic, teacherName);
     }
   } else {
-    return uploadNoteLocally(file, fileName, subject, userId, uploadDate);
+    return uploadNoteLocally(file, fileName, subject, userId, uploadDate, isPublic, teacherName);
   }
 };
 
 // Helper function to upload note locally
-const uploadNoteLocally = async (file, fileName, subject, userId, uploadDate) => {
+const uploadNoteLocally = async (file, fileName, subject, userId, uploadDate, isPublic = false, teacherName = '') => {
   // Create a virtual URL for our local PDF/Image so it can be previewed!
   const fileURL = URL.createObjectURL(file);
   
@@ -323,7 +423,9 @@ const uploadNoteLocally = async (file, fileName, subject, userId, uploadDate) =>
     uploadedBy: userId,
     uploadDate,
     summary: '',
-    keyTakeaways: []
+    keyTakeaways: [],
+    isPublic,
+    teacherName
   };
 
   const localNotes = JSON.parse(localStorage.getItem('local_notes') || '[]');
@@ -337,34 +439,48 @@ const uploadNoteLocally = async (file, fileName, subject, userId, uploadDate) =>
 };
 
 /**
- * Fetch all notes uploaded by a specific user
+ * Fetch all notes uploaded by a specific user or shared publicly
  */
-export const getUserNotes = async (userId) => {
+export const getUserNotes = async (userId, userRole = 'student') => {
   if (isFirebaseActive) {
     try {
-      const q = query(
-        collection(db, "notes"), 
-        where("uploadedBy", "==", userId),
-        orderBy("uploadDate", "desc")
-      );
+      // Query notes collection
+      const q = query(collection(db, "notes"));
       const snapshot = await getDocs(q);
       const notes = [];
       snapshot.forEach(doc => {
-        notes.push({ id: doc.id, ...doc.data() });
+        const data = doc.data();
+        if (userRole === 'teacher') {
+          // Teacher sees only notes uploaded by them
+          if (data.uploadedBy === userId) {
+            notes.push({ id: doc.id, ...data });
+          }
+        } else {
+          // Student sees all teacher-shared notes (isPublic === true) + their own uploads if any
+          if (data.isPublic || data.uploadedBy === userId) {
+            notes.push({ id: doc.id, ...data });
+          }
+        }
       });
+      // Sort desc
+      notes.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
       return notes;
     } catch (e) {
       console.warn("Error fetching cloud notes. Loading local storage notes instead.", e);
-      return getLocalNotes(userId);
+      return getLocalNotes(userId, userRole);
     }
   } else {
-    return getLocalNotes(userId);
+    return getLocalNotes(userId, userRole);
   }
 };
 
-const getLocalNotes = (userId) => {
+const getLocalNotes = (userId, userRole = 'student') => {
   const localNotes = JSON.parse(localStorage.getItem('local_notes') || '[]');
-  return localNotes.filter(note => note.uploadedBy === userId).reverse();
+  if (userRole === 'teacher') {
+    return localNotes.filter(note => note.uploadedBy === userId).reverse();
+  } else {
+    return localNotes.filter(note => note.isPublic || note.uploadedBy === userId).reverse();
+  }
 };
 
 /**

@@ -36,6 +36,14 @@ const NotesUpload = ({ activeUser, onStartQuiz }) => {
   const [activeNote, setActiveNote] = useState(null);
   const [generatingSummary, setGeneratingSummary] = useState(false);
 
+  // Active Subject Filter state
+  const [selectedFilter, setSelectedFilter] = useState("All");
+
+  // Filtered notes based on selected capsule category
+  const filteredNotes = selectedFilter === "All"
+    ? notes
+    : notes.filter(n => n.subject.toLowerCase() === selectedFilter.toLowerCase());
+
   // Subject options
   const subjectsList = [
     // Science
@@ -51,7 +59,7 @@ const NotesUpload = ({ activeUser, onStartQuiz }) => {
     if (!activeUser) return;
     try {
       setLoadingNotes(true);
-      const userNotes = await getUserNotes(activeUser.uid);
+      const userNotes = await getUserNotes(activeUser.uid, activeUser.role || 'student');
       setNotes(userNotes);
     } catch (e) {
       console.error(e);
@@ -92,12 +100,17 @@ const NotesUpload = ({ activeUser, onStartQuiz }) => {
         file,
         file.name,
         subject,
-        activeUser.uid
+        activeUser.uid,
+        activeUser.role || 'student',
+        activeUser.displayName || ''
       );
       
       setNotes(prev => [uploadedNote, ...prev]);
       setFile(null);
       setUploadSuccess(true);
+      
+      // Auto-focus the filter view on the uploaded subject category
+      setSelectedFilter(subject);
       
       // Auto-clear success banner after 3 seconds
       setTimeout(() => setUploadSuccess(false), 3000);
@@ -149,6 +162,8 @@ const NotesUpload = ({ activeUser, onStartQuiz }) => {
     }
   };
 
+  const isTeacher = activeUser?.role === 'teacher';
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 animate-fade-in pb-12">
       
@@ -159,113 +174,180 @@ const NotesUpload = ({ activeUser, onStartQuiz }) => {
         
         {/* Page title */}
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-white dark:text-white light:text-indigo-950">Study Notes Upload System</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight text-white dark:text-white light:text-indigo-950">
+            {isTeacher ? "Teacher Curriculum Studio" : "Classroom Study Library"}
+          </h1>
           <p className="text-sm text-slate-400 dark:text-slate-400 light:text-zinc-500 mt-1">
-            Upload PDFs or image worksheets, organize by subject category, and trigger dynamic AI summaries.
+            {isTeacher 
+              ? "Upload reference PDFs, curriculum notes, or homework worksheets to instantly share them with your students."
+              : "Access premium reference notes, worksheets, and concept documents uploaded by your classroom Teachers."
+            }
           </p>
         </div>
 
-        {/* DRAG-AND-DROP UPLOAD GLASS CARD */}
-        <GlassCard className="p-6 border border-white/5 relative">
-          <h3 className="text-base font-bold text-white dark:text-white light:text-indigo-950 mb-4 flex items-center gap-2">
-            <Upload className="w-5 h-5 text-purple-400" />
-            Upload New File
-          </h3>
+        {/* DRAG-AND-DROP UPLOAD GLASS CARD (ONLY RENDERED FOR TEACHER!) */}
+        {isTeacher ? (
+          <GlassCard className="p-6 border border-white/5 relative">
+            <h3 className="text-base font-bold text-white dark:text-white light:text-indigo-950 mb-4 flex items-center gap-2">
+              <Upload className="w-5 h-5 text-purple-400" />
+              Upload Shared Curriculum Note
+            </h3>
 
-          {/* Error & Success indicators */}
-          {uploadError && (
-            <div className="mb-4 flex items-center gap-2 p-3 bg-red-500/10 dark:bg-red-500/10 light:bg-red-50 border border-red-500/30 rounded-xl text-xs text-red-400 dark:text-red-400 light:text-red-600">
-              <AlertCircle className="w-4 h-4" />
-              <span>{uploadError}</span>
-            </div>
-          )}
-
-          {uploadSuccess && (
-            <div className="mb-4 flex items-center gap-2 p-3 bg-emerald-500/15 dark:bg-emerald-500/10 light:bg-emerald-50 border border-emerald-500/30 rounded-xl text-xs text-emerald-400 dark:text-emerald-400 light:text-emerald-600 animate-pulse">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Note uploaded successfully! Active stats incremented.</span>
-            </div>
-          )}
-
-          <form onSubmit={handleUpload} className="space-y-4">
-            
-            {/* Subject Picker */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-500 pl-1">Course / Subject Category</label>
-              <select
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl text-sm bg-space-900/60 dark:bg-space-900/50 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 dark:focus:border-purple-500/30 text-white dark:text-white light:text-indigo-950 transition-colors"
-              >
-                {subjectsList.map((sub, sIdx) => (
-                  <option key={sIdx} value={sub} className="bg-space-900 text-white dark:bg-space-950 dark:text-white light:bg-white light:text-indigo-900">{sub}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Visual File uploader box */}
-            <div className="relative border-2 border-dashed border-white/10 dark:border-white/5 light:border-zinc-200/80 hover:border-purple-500/50 rounded-2xl p-6 text-center cursor-pointer transition-all bg-white/3 dark:bg-white/2 light:bg-indigo-50/20 group">
-              <input
-                type="file"
-                required
-                accept=".pdf, image/*"
-                onChange={handleFileChange}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
-                  <Upload className="w-6 h-6" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white dark:text-white light:text-indigo-900">
-                    {file ? file.name : "Drag & drop file or click to select"}
-                  </h4>
-                  <p className="text-[10px] text-slate-500 mt-1">Accepts PDF or Image (Max 10MB)</p>
-                </div>
+            {/* Error & Success indicators */}
+            {uploadError && (
+              <div className="mb-4 flex items-center gap-2 p-3 bg-red-500/10 dark:bg-red-500/10 light:bg-red-50 border border-red-500/30 rounded-xl text-xs text-red-400 dark:text-red-400 light:text-red-600">
+                <AlertCircle className="w-4 h-4" />
+                <span>{uploadError}</span>
               </div>
-            </div>
-
-            {/* Action button */}
-            {file && (
-              <button
-                type="submit"
-                disabled={uploading}
-                className="btn-neon w-full flex items-center justify-center gap-2 !py-2.5 text-xs font-bold"
-              >
-                {uploading ? (
-                  <div className="w-4 h-4 rounded-full border-2 border-t-white border-r-transparent border-b-white border-l-transparent animate-spin" />
-                ) : (
-                  <>
-                    <span>Confirm Note Upload</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
             )}
 
-          </form>
-        </GlassCard>
+            {uploadSuccess && (
+              <div className="mb-4 flex items-center gap-2 p-3 bg-emerald-500/15 dark:bg-emerald-500/10 light:bg-emerald-50 border border-emerald-500/30 rounded-xl text-xs text-emerald-400 dark:text-emerald-400 light:text-emerald-600 animate-pulse">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Document successfully uploaded and published to the student catalog!</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpload} className="space-y-4">
+              
+              {/* Subject Picker */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-500 pl-1">Course / Subject Category</label>
+                <select
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl text-sm bg-space-900/60 dark:bg-space-900/50 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 dark:focus:border-purple-500/30 text-white dark:text-white light:text-indigo-950 transition-colors"
+                >
+                  {subjectsList.map((sub, sIdx) => (
+                    <option key={sIdx} value={sub} className="bg-space-900 text-white dark:bg-space-950 dark:text-white light:bg-white light:text-indigo-900">{sub}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Visual File uploader box */}
+              <div className="relative border-2 border-dashed border-white/10 dark:border-white/5 light:border-zinc-200/80 hover:border-purple-500/50 rounded-2xl p-6 text-center cursor-pointer transition-all bg-white/3 dark:bg-white/2 light:bg-indigo-50/20 group">
+                <input
+                  type="file"
+                  required
+                  accept=".pdf, image/*"
+                  onChange={handleFileChange}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
+                    <Upload className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white dark:text-white light:text-indigo-900">
+                      {file ? file.name : "Drag & drop reference PDF or click to select"}
+                    </h4>
+                    <p className="text-[10px] text-slate-500 mt-1">Accepts PDF or Image (Max 10MB)</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action button */}
+              {file && (
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="btn-neon w-full flex items-center justify-center gap-2 !py-2.5 text-xs font-bold"
+                >
+                  {uploading ? (
+                    <div className="w-4 h-4 rounded-full border-2 border-t-white border-r-transparent border-b-white border-l-transparent animate-spin" />
+                  ) : (
+                    <>
+                      <span>Upload & Publish to Class</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              )}
+
+            </form>
+          </GlassCard>
+        ) : (
+          /* Student classroom banner */
+          <GlassCard className="p-5 border border-purple-500/10 bg-gradient-to-r from-purple-500/10 to-transparent flex items-center gap-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-16 h-16 rounded-full bg-purple-500/5 blur-[25px]" />
+            <div className="w-11 h-11 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center shrink-0 shadow-inner">
+              <Sparkles className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-white">Interactive Syllabus Mode Active</h4>
+              <p className="text-[10px] text-slate-500 leading-normal mt-0.5">
+                Students are locked in study mode. Read and review curriculum documents published by your Teacher below to prepare for exams!
+              </p>
+            </div>
+          </GlassCard>
+        )}
 
         {/* UPLOADED NOTES DOCUMENT LIST */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-white/5 dark:border-white/5 light:border-zinc-200/50">
-            <h3 className="text-sm font-bold text-white dark:text-white light:text-indigo-950">My Document Cabinet</h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-white/5 dark:border-white/5 light:border-zinc-200/50">
+            <h3 className="text-sm font-bold text-white dark:text-white light:text-indigo-950">
+              {isTeacher ? "My Classroom Uploads" : "Shared Class Documents"}
+            </h3>
             <span className="text-xs text-slate-500">Total Notes: {notes.length}</span>
           </div>
+
+          {/* SUBJECT FILTER CAPSULES */}
+          {!loadingNotes && notes.length > 0 && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 pt-1 scrollbar-none">
+              {["All", ...subjectsList].map((opt, idx) => {
+                const isActive = selectedFilter === opt;
+                const count = opt === "All" 
+                  ? notes.length 
+                  : notes.filter(n => n.subject === opt).length;
+
+                // Only render capsules that have uploaded materials or represent 'All'
+                if (opt !== "All" && count === 0 && selectedFilter !== opt) return null;
+
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setSelectedFilter(opt)}
+                    className={`px-3.5 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap transition-all duration-300 flex items-center gap-1.5 shrink-0 ${
+                      isActive 
+                        ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20' 
+                        : 'bg-white/5 dark:bg-white/5 light:bg-indigo-50 border border-white/10 dark:border-white/5 light:border-zinc-200 text-slate-450 hover:bg-white/10 dark:hover:bg-white/8 light:text-zinc-650'
+                    }`}
+                  >
+                    <span>{opt}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                      isActive 
+                        ? 'bg-white/20 text-white' 
+                        : 'bg-white/10 dark:bg-white/10 light:bg-indigo-100 text-slate-455 light:text-indigo-900'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {loadingNotes ? (
             <div className="flex justify-center items-center py-10">
               <div className="w-8 h-8 rounded-full border-2 border-t-purple-500 border-r-transparent border-b-indigo-500 border-l-transparent animate-spin" />
             </div>
-          ) : notes.length === 0 ? (
-            <div className="text-center py-12 flex flex-col items-center gap-2 bg-white/2 dark:bg-white/1 light:bg-indigo-50/20 border border-white/5 dark:border-white/5 light:border-zinc-200 rounded-2xl">
+          ) : filteredNotes.length === 0 ? (
+            <div className="text-center py-12 flex flex-col items-center gap-2 bg-white/2 dark:bg-white/1 light:bg-indigo-50/20 border border-white/5 dark:border-white/5 light:border-zinc-200 rounded-2xl w-full">
               <span className="text-3xl">📁</span>
-              <h4 className="text-sm font-semibold text-slate-300 dark:text-slate-300 light:text-zinc-800">Cabinet is currently empty</h4>
-              <p className="text-xs text-slate-500 max-w-xs leading-relaxed">No documents have been uploaded yet. Drop a PDF file in the box above to activate your dashboard cabinet!</p>
+              <h4 className="text-sm font-semibold text-slate-350 dark:text-slate-300 light:text-zinc-800">
+                {selectedFilter === "All" ? "Curriculum list is empty" : `No ${selectedFilter} notes yet`}
+              </h4>
+              <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
+                {selectedFilter === "All" 
+                  ? (isTeacher ? "You haven't uploaded any study notes yet. Drop a syllabus PDF in the cabinet above to share with students!" : "Your classroom teacher has not uploaded any study materials yet. Please wait for curriculum items to populate!")
+                  : `There are currently no notes published under the ${selectedFilter} category.`
+                }
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {notes.map((note) => (
+              {filteredNotes.map((note) => (
                 <GlassCard 
                   key={note.id} 
                   className={`p-4 border ${
@@ -281,10 +363,22 @@ const NotesUpload = ({ activeUser, onStartQuiz }) => {
                     
                     <div className="min-w-0 flex-1">
                       <h4 className="text-xs font-bold truncate text-white dark:text-white light:text-indigo-900" title={note.fileName}>{note.fileName}</h4>
-                      <div className="flex items-center gap-1.5 mt-1 text-[9px] font-semibold text-slate-400">
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[9px] font-semibold text-slate-400">
                         <Tag className="w-3 h-3 text-purple-400" />
                         <span>{note.subject}</span>
+                        {note.isPublic && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 font-bold uppercase tracking-wider text-[7px] shrink-0">
+                            Shared Class Note 🏫
+                          </span>
+                        )}
                       </div>
+                      
+                      {/* Teacher name credit for students */}
+                      {!isTeacher && note.teacherName && (
+                        <p className="text-[8.5px] text-slate-500 italic mt-1.5 pl-0.5">
+                          Uploaded by: {note.teacherName}
+                        </p>
+                      )}
                     </div>
                   </div>
 

@@ -22,21 +22,11 @@ const Navbar = ({ activeUser, onNavigate }) => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleNavClick = (sectionId, pageName = 'home') => {
+  const handleNavClick = (pageName = 'home') => {
     setIsOpen(false);
     
     // Notify main app to switch pages
     onNavigate(pageName);
-    
-    // Smooth scroll to the target section if on home page
-    if (pageName === 'home' && sectionId) {
-      setTimeout(() => {
-        const element = document.getElementById(sectionId);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth' });
-        }
-      }, 100);
-    }
   };
 
   return (
@@ -49,7 +39,7 @@ const Navbar = ({ activeUser, onNavigate }) => {
         
         {/* LOGO */}
         <div 
-          onClick={() => handleNavClick(null, 'home')}
+          onClick={() => handleNavClick('home')}
           className="flex items-center gap-2 cursor-pointer group"
         >
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg group-hover:scale-105 active:scale-95 duration-300">
@@ -63,25 +53,25 @@ const Navbar = ({ activeUser, onNavigate }) => {
         {/* DESKTOP NAV LINKS */}
         <div className="hidden md:flex items-center gap-8">
           <button 
-            onClick={() => handleNavClick(null, 'home')}
+            onClick={() => handleNavClick('home')}
             className="text-sm font-medium hover:text-purple-500 dark:hover:text-purple-400 light:text-zinc-700 light:hover:text-indigo-600 transition-colors"
           >
             Home
           </button>
           <button 
-            onClick={() => handleNavClick('features', 'home')}
+            onClick={() => handleNavClick('features')}
             className="text-sm font-medium hover:text-purple-500 dark:hover:text-purple-400 light:text-zinc-700 light:hover:text-indigo-600 transition-colors"
           >
             Features
           </button>
           <button 
-            onClick={() => handleNavClick('subjects', 'home')}
+            onClick={() => handleNavClick('subjects')}
             className="text-sm font-medium hover:text-purple-500 dark:hover:text-purple-400 light:text-zinc-700 light:hover:text-indigo-600 transition-colors"
           >
             Subjects
           </button>
           <button 
-            onClick={() => handleNavClick('features', 'home')} // AI Tools are described inside features section
+            onClick={() => handleNavClick('aitools')}
             className="text-sm font-medium hover:text-purple-500 dark:hover:text-purple-400 light:text-zinc-700 light:hover:text-indigo-600 transition-colors"
           >
             AI Tools
@@ -126,22 +116,28 @@ const Navbar = ({ activeUser, onNavigate }) => {
       {isOpen && (
         <div className="md:hidden absolute top-full left-0 w-full glass-panel dark:bg-space-900/95 light:bg-white/95 backdrop-blur-xl border-b border-white/5 dark:border-white/5 light:border-zinc-200 p-6 flex flex-col gap-4 animate-fade-in shadow-2xl">
           <button 
-            onClick={() => handleNavClick(null, 'home')}
+            onClick={() => handleNavClick('home')}
             className="text-left py-2 font-medium hover:text-purple-400 dark:hover:text-purple-400 light:text-zinc-700 light:hover:text-indigo-600 border-b border-white/5 dark:border-white/5 light:border-zinc-100"
           >
             Home
           </button>
           <button 
-            onClick={() => handleNavClick('features', 'home')}
+            onClick={() => handleNavClick('features')}
             className="text-left py-2 font-medium hover:text-purple-400 dark:hover:text-purple-400 light:text-zinc-700 light:hover:text-indigo-600 border-b border-white/5 dark:border-white/5 light:border-zinc-100"
           >
             Features
           </button>
           <button 
-            onClick={() => handleNavClick('subjects', 'home')}
+            onClick={() => handleNavClick('subjects')}
             className="text-left py-2 font-medium hover:text-purple-400 dark:hover:text-purple-400 light:text-zinc-700 light:hover:text-indigo-600 border-b border-white/5 dark:border-white/5 light:border-zinc-100"
           >
             Subjects
+          </button>
+          <button 
+            onClick={() => handleNavClick('aitools')}
+            className="text-left py-2 font-medium hover:text-purple-400 dark:hover:text-purple-400 light:text-zinc-700 light:hover:text-indigo-600 border-b border-white/5 dark:border-white/5 light:border-zinc-100"
+          >
+            AI Tools
           </button>
           
           {activeUser ? (

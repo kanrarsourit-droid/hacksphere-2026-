@@ -9,21 +9,48 @@ import {
   Calendar,
   Sparkles,
   Lock,
-  Bookmark
+  Bookmark,
+  Phone,
+  Heart,
+  Edit2,
+  Save,
+  Check,
+  Mail,
+  HelpCircle
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import GlassCard from '../components/GlassCard';
-import { getUserNotes, getUserQuizzes, getUserRoadmaps } from '../services/db';
+import { getUserNotes, getUserQuizzes, getUserRoadmaps, updateUserProfile } from '../services/db';
 
 /**
  * SkillSync AI - Interactive Student Profile & Achievements Console
+ * Now featuring biography writing, phone updates, hobby tags, and preset avatar builders!
  */
-const Profile = ({ activeUser }) => {
+const Profile = ({ activeUser, onUpdateUser }) => {
   const [notesCount, setNotesCount] = useState(0);
   const [quizCount, setQuizCount] = useState(0);
   const [avgScore, setAvgScore] = useState(0);
   const [roadmapCount, setRoadmapCount] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  // Edit Profile Form States
+  const [editName, setEditName] = useState(activeUser.displayName || "");
+  const [editPhoto, setEditPhoto] = useState(activeUser.photoURL || "");
+  const [editBio, setEditBio] = useState(activeUser.bio || "");
+  const [editPhone, setEditPhone] = useState(activeUser.phone || "");
+  const [editHobbies, setEditHobbies] = useState(activeUser.hobbies || "");
+  
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Quick preset avatars seed list (Dicebear seeds)
+  const avatarPresets = [
+    { name: 'Alex', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Alex' },
+    { name: 'Sarah', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Sarah' },
+    { name: 'Max', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Max' },
+    { name: 'Leo', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Leo' },
+    { name: 'Luna', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Luna' },
+  ];
 
   useEffect(() => {
     const loadProfileStats = async () => {
@@ -54,6 +81,51 @@ const Profile = ({ activeUser }) => {
     };
     loadProfileStats();
   }, [activeUser]);
+
+  // Sync state if activeUser updates in background
+  useEffect(() => {
+    if (activeUser) {
+      setEditName(activeUser.displayName || "");
+      setEditPhoto(activeUser.photoURL || "");
+      setEditBio(activeUser.bio || "");
+      setEditPhone(activeUser.phone || "");
+      setEditHobbies(activeUser.hobbies || "");
+    }
+  }, [activeUser]);
+
+  // Form Submit Handler
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    if (!editName.trim() || !activeUser) return;
+
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      const updatedFields = {
+        displayName: editName,
+        photoURL: editPhoto,
+        bio: editBio,
+        phone: editPhone,
+        hobbies: editHobbies
+      };
+
+      // Call database update helper
+      await updateUserProfile(activeUser.uid, updatedFields);
+
+      // Trigger reactive state cascade in main App container
+      if (onUpdateUser) {
+        onUpdateUser(updatedFields);
+      }
+
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000); // fade out alert bubble
+    } catch (err) {
+      console.error("Save profile error:", err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Comparative subject chart data
   const subjectChartData = [
@@ -128,14 +200,53 @@ const Profile = ({ activeUser }) => {
           <img 
             src={activeUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${activeUser.uid}`}
             alt="profile avatar" 
-            className="w-20 h-20 rounded-full border-2 border-purple-500/30 p-1 mx-auto bg-space-850 dark:bg-space-900 light:bg-white"
+            className="w-20 h-20 rounded-full border-2 border-purple-500/30 p-1 mx-auto bg-space-850 dark:bg-space-900 light:bg-white shadow-lg"
           />
 
           <h2 className="text-lg font-bold text-white dark:text-white light:text-indigo-950 mt-4">{activeUser.displayName || 'Student'}</h2>
-          <p className="text-xs text-slate-400 dark:text-slate-400 light:text-zinc-500 mt-0.5">{activeUser.email}</p>
+          <p className="text-xs text-slate-400 dark:text-slate-400 light:text-zinc-500 mt-0.5 flex items-center justify-center gap-1">
+            <Mail className="w-3.5 h-3.5 text-purple-400" />
+            <span>{activeUser.email}</span>
+          </p>
+
+          {/* Phone Number Display */}
+          {activeUser.phone && (
+            <p className="text-[11px] text-slate-400 dark:text-slate-400 light:text-zinc-600 mt-1 flex items-center justify-center gap-1">
+              <Phone className="w-3.5 h-3.5 text-indigo-400" />
+              <span>{activeUser.phone}</span>
+            </p>
+          )}
+
+          {/* Biography Block */}
+          <div className="mt-4 pt-4 border-t border-white/5 dark:border-white/5 light:border-zinc-200/50 text-left">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider pl-0.5">Biography</span>
+            <p className="text-xs text-slate-400 dark:text-slate-400 light:text-zinc-600 mt-1 pl-0.5 leading-relaxed italic">
+              {activeUser.bio || "No biography written yet. Use the 'Modify Profile' card on the right to share your bio!"}
+            </p>
+          </div>
+
+          {/* Hobbies Glow Badges */}
+          {activeUser.hobbies && (
+            <div className="mt-4 pt-4 border-t border-white/5 dark:border-white/5 light:border-zinc-200/50 text-left">
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider pl-0.5 flex items-center gap-1">
+                <Heart className="w-3 h-3 text-pink-400" />
+                <span>Interests & Hobbies</span>
+              </span>
+              <div className="flex flex-wrap gap-1.5 mt-2 pl-0.5">
+                {activeUser.hobbies.split(',').map((hobby, index) => (
+                  <span 
+                    key={index}
+                    className="text-[9px] font-bold px-2 py-0.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 shrink-0"
+                  >
+                    {hobby.trim()}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Registration Date */}
-          <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-500 mt-4 font-semibold uppercase tracking-wider">
+          <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-500 mt-6 font-semibold uppercase tracking-wider">
             <Calendar className="w-3.5 h-3.5 text-purple-400" />
             <span>Enrolled: {activeUser.createdAt ? new Date(activeUser.createdAt).toLocaleDateString() : new Date().toLocaleDateString()}</span>
           </div>
@@ -191,6 +302,131 @@ const Profile = ({ activeUser }) => {
           ========================================== */}
       <div className="lg:col-span-2 space-y-6">
         
+        {/* EDIT PROFILE DETAILS CARD (NEWLY REQUESTED FEATURE!) */}
+        <GlassCard className="p-6 border border-white/5 space-y-5">
+          <div className="flex items-center justify-between pb-2 border-b border-white/5 dark:border-white/5 light:border-zinc-200/50">
+            <div>
+              <h3 className="text-base font-bold text-white dark:text-white light:text-indigo-950 flex items-center gap-2">
+                <Edit2 className="w-4.5 h-4.5 text-purple-400" />
+                Modify Profile Console
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">Customize your name, contact phone, hobbies, and display avatars</p>
+            </div>
+
+            {/* Success Toast */}
+            {saveSuccess && (
+              <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl animate-pulse">
+                <Check className="w-3.5 h-3.5" />
+                <span>Saved successfully!</span>
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleSaveProfile} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              
+              {/* Display Name Input */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-500 pl-1">Full / Pen Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Marie Curie, Albert"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl text-xs bg-space-900/60 dark:bg-space-900/50 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 dark:focus:border-purple-500/30 text-white dark:text-white light:text-indigo-950 transition-colors"
+                />
+              </div>
+
+              {/* Phone Number Input */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-500 pl-1">Phone Number</label>
+                <input
+                  type="tel"
+                  placeholder="e.g. +1 555-0199"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl text-xs bg-space-900/60 dark:bg-space-900/50 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 dark:focus:border-purple-500/30 text-white dark:text-white light:text-indigo-950 transition-colors"
+                />
+              </div>
+
+              {/* Hobbies comma-separated */}
+              <div className="flex flex-col gap-1.5 md:col-span-2">
+                <label className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-500 pl-1">Interests & Hobbies (comma-separated)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Artificial Intelligence, Reading, Space Physics, Guitar"
+                  value={editHobbies}
+                  onChange={(e) => setEditHobbies(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl text-xs bg-space-900/60 dark:bg-space-900/50 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 dark:focus:border-purple-500/30 text-white dark:text-white light:text-indigo-950 transition-colors"
+                />
+              </div>
+
+              {/* Biography biography description */}
+              <div className="flex flex-col gap-1.5 md:col-span-2">
+                <label className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-500 pl-1">Biography / About Me</label>
+                <textarea
+                  placeholder="Tell us about yourself! E.g. I am a sophomore physics student aiming to master quantum mechanics..."
+                  rows={2}
+                  value={editBio}
+                  onChange={(e) => setEditBio(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl text-xs bg-space-900/60 dark:bg-space-900/50 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 dark:focus:border-purple-500/30 text-white dark:text-white light:text-indigo-950 transition-colors resize-none leading-relaxed"
+                />
+              </div>
+
+              {/* Profile Image Preset Selection or Custom URL */}
+              <div className="flex flex-col gap-2.5 md:col-span-2 pt-2 border-t border-white/5 dark:border-white/5 light:border-zinc-200/50">
+                <label className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-500 pl-1">Custom Photo URL or Choose Preset Bot</label>
+                
+                {/* Visual seed preset blocks */}
+                <div className="flex flex-wrap gap-3 items-center mb-2 pl-0.5">
+                  {avatarPresets.map((preset, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => setEditPhoto(preset.url)}
+                      className={`w-11 h-11 rounded-xl p-1 border transition-all flex items-center justify-center bg-space-850 dark:bg-space-900 light:bg-white ${
+                        editPhoto === preset.url
+                          ? 'border-purple-500 shadow-md scale-105 bg-purple-500/10'
+                          : 'border-white/5 hover:border-purple-500/20'
+                      }`}
+                    >
+                      <img src={preset.url} alt={preset.name} className="w-full h-full rounded-lg" />
+                    </button>
+                  ))}
+                  
+                  <span className="text-[10px] text-slate-500 font-semibold italic">Presets</span>
+                </div>
+
+                <input
+                  type="url"
+                  placeholder="https://example.com/your-custom-image.png"
+                  value={editPhoto}
+                  onChange={(e) => setEditPhoto(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl text-xs bg-space-900/60 dark:bg-space-900/50 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 dark:focus:border-purple-500/30 text-white dark:text-white light:text-indigo-950 transition-colors"
+                />
+              </div>
+
+            </div>
+
+            {/* Action Submit */}
+            <button
+              type="submit"
+              disabled={isSaving || !editName.trim()}
+              className="btn-neon w-full flex items-center justify-center gap-2 !py-2.5 text-xs font-bold mt-2"
+            >
+              {isSaving ? (
+                <div className="w-4 h-4 rounded-full border-2 border-t-white border-r-transparent border-b-white border-l-transparent animate-spin" />
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>Save Profile Changes</span>
+                </>
+              )}
+            </button>
+          </form>
+        </GlassCard>
+
         {/* GAMIFIED ACHIEVEMENTS LIST */}
         <GlassCard className="p-6 border border-white/5 space-y-6">
           <div className="flex items-center justify-between pb-2 border-b border-white/5 dark:border-white/5 light:border-zinc-200/50">

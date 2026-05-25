@@ -28,9 +28,9 @@ const Footer = ({ onNavigate }) => {
         {/* RESOURCE MAP */}
         <div className="flex flex-col gap-3">
           <h4 className="text-sm font-semibold text-white dark:text-white light:text-indigo-950 uppercase tracking-wider">Features</h4>
-          <button onClick={() => onNavigate('home')} className="text-sm text-left text-slate-400 dark:text-slate-400 light:text-zinc-600 hover:text-purple-400 dark:hover:text-purple-400 light:hover:text-indigo-600 transition-colors">Quiz Generator</button>
-          <button onClick={() => onNavigate('home')} className="text-sm text-left text-slate-400 dark:text-slate-400 light:text-zinc-600 hover:text-purple-400 dark:hover:text-purple-400 light:hover:text-indigo-600 transition-colors">AI Chatbot Tutor</button>
-          <button onClick={() => onNavigate('home')} className="text-sm text-left text-slate-400 dark:text-slate-400 light:text-zinc-600 hover:text-purple-400 dark:hover:text-purple-400 light:hover:text-indigo-600 transition-colors">Roadmap Builder</button>
+          <button onClick={() => onNavigate('features')} className="text-sm text-left text-slate-400 dark:text-slate-400 light:text-zinc-600 hover:text-purple-400 dark:hover:text-purple-400 light:hover:text-indigo-600 transition-colors">AI Quiz Generator</button>
+          <button onClick={() => onNavigate('features')} className="text-sm text-left text-slate-400 dark:text-slate-400 light:text-zinc-600 hover:text-purple-400 dark:hover:text-purple-400 light:hover:text-indigo-600 transition-colors">AI Chatbot Tutor</button>
+          <button onClick={() => onNavigate('features')} className="text-sm text-left text-slate-400 dark:text-slate-400 light:text-zinc-600 hover:text-purple-400 dark:hover:text-purple-400 light:hover:text-indigo-600 transition-colors">Roadmap Builder</button>
         </div>
 
         {/* NEWSLETTER */}

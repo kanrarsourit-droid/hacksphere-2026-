@@ -10,7 +10,8 @@ import {
   Flame,
   Sparkles,
   Menu,
-  X
+  X,
+  Home as HomeNavIcon
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import ThemeToggler from './ThemeToggler';
@@ -22,15 +23,25 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout }) => {
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // List of sidebar navigation links
-  const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'notes', label: 'My Notes', icon: FileText },
-    { id: 'quiz', label: 'AI Quiz', icon: BrainCircuit },
-    { id: 'chatbot', label: 'AI Chatbot', icon: MessageSquareCode },
-    { id: 'roadmap', label: 'Roadmap Generator', icon: Map },
-    { id: 'profile', label: 'Profile', icon: User },
-  ];
+  const isTeacher = activeUser?.role === 'teacher';
+
+  // List of sidebar navigation links filtered dynamically by role!
+  const menuItems = isTeacher 
+    ? [
+        { id: 'home', label: 'Portal Home', icon: HomeNavIcon },
+        { id: 'dashboard', label: 'Teacher Console', icon: LayoutDashboard },
+        { id: 'notes', label: 'Curriculum Studio', icon: FileText },
+        { id: 'profile', label: 'Teacher Profile', icon: User },
+      ]
+    : [
+        { id: 'home', label: 'Portal Home', icon: HomeNavIcon },
+        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'notes', label: 'Classroom Library', icon: FileText },
+        { id: 'quiz', label: 'AI Quiz', icon: BrainCircuit },
+        { id: 'chatbot', label: 'Doubt Solver', icon: MessageSquareCode },
+        { id: 'roadmap', label: 'Roadmap timeline', icon: Map },
+        { id: 'profile', label: 'Student Profile', icon: User },
+      ];
 
   const handleMenuClick = (itemId) => {
     onTabChange(itemId);
@@ -60,14 +71,22 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout }) => {
             />
             <div className="min-w-0 flex-1">
               <h4 className="text-sm font-semibold truncate text-white dark:text-white light:text-indigo-900">{activeUser.displayName}</h4>
-              <p className="text-xs text-slate-400 dark:text-slate-400 light:text-zinc-500 truncate">{activeUser.email}</p>
+              <p className="text-[10px] text-purple-400 dark:text-purple-450 light:text-indigo-600 font-bold uppercase tracking-wider mt-0.5">
+                {isTeacher ? "Class Teacher 👨‍🏫" : "Student Scholar 🎓"}
+              </p>
             </div>
             
-            {/* Streak Badge */}
-            <div className="flex items-center gap-0.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white py-1 px-2 rounded-lg text-xs font-bold shadow-md animate-pulse">
-              <Flame className="w-3.5 h-3.5 fill-white" />
-              <span>{activeUser.streak || 1}d</span>
-            </div>
+            {/* Streak or Staff Badge */}
+            {isTeacher ? (
+              <div className="flex items-center bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-1 px-2 rounded-lg text-[9px] font-bold shadow-md shrink-0 border border-purple-500/30">
+                <span>Staff</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-0.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white py-1 px-2 rounded-lg text-xs font-bold shadow-md animate-pulse shrink-0">
+                <Flame className="w-3.5 h-3.5 fill-white" />
+                <span>{activeUser.streak || 1}d</span>
+              </div>
+            )}
           </div>
         )}
 
