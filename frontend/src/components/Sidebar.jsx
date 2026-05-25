@@ -19,7 +19,7 @@ import ThemeToggler from './ThemeToggler';
 /**
  * SkillSync AI - Dashboard Sidebar navigation console
  */
-const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout }) => {
+const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout, onNavigate }) => {
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -48,11 +48,23 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout }) => {
     setMobileOpen(false);
   };
 
+  const handleLogoClick = () => {
+    if (onNavigate) {
+      onNavigate('home');
+    } else {
+      onTabChange('home');
+    }
+    setMobileOpen(false);
+  };
+
   const SidebarContent = () => (
     <div className="h-full flex flex-col justify-between py-6 px-4">
       <div>
         {/* BRAND BRANDING */}
-        <div className="flex items-center gap-2 px-3 mb-8">
+        <div 
+          onClick={handleLogoClick}
+          className="flex items-center gap-2 px-3 mb-8 cursor-pointer hover:opacity-85 transition-opacity"
+        >
           <div className="w-8.5 h-8.5 rounded-lg bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-md">
             <Sparkles className="w-4.5 h-4.5 text-white animate-pulse" />
           </div>
@@ -144,7 +156,10 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout }) => {
 
       {/* MOBILE HEADER BUTTON BAR (Only visible under md screens) */}
       <header className="md:hidden w-full bg-space-950/80 dark:bg-space-950/80 light:bg-white/80 backdrop-blur-md border-b border-white/5 dark:border-white/5 light:border-zinc-200/60 fixed top-0 left-0 h-16 px-6 flex items-center justify-between z-40">
-        <div className="flex items-center gap-2">
+        <div 
+          onClick={handleLogoClick}
+          className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition-opacity"
+        >
           <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center">
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>

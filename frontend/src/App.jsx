@@ -140,6 +140,9 @@ function App() {
             // Clear deep-link quiz context if student clicks on a different tab manually
             if (tabId !== 'quiz') setInitialQuizNote(null);
           }}
+          onNavigate={(page) => {
+            setCurrentPage(page);
+          }}
           activeUser={activeUser}
           onLogout={handleLogout}
         />
