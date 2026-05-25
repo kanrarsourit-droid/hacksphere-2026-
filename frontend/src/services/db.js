@@ -48,6 +48,53 @@ const checkFirebaseStatus = () => {
 export const isFirebaseActive = checkFirebaseStatus();
 
 // ==========================================
+// FAILSAFE CONCURRENCY TIMEOUT ENGINE
+// ==========================================
+
+// Global failover indicator
+let firebaseConnectionFailed = false;
+
+/**
+ * Failsafe wrapper that races any Firebase async call against a 4-second timeout limit.
+ * If the connection stalls due to unconfigured Storage/Firestore, network firewalls,
+ * or slow DNS routes, it automatically engages the Local Storage Sandbox,
+ * completing the operation in milliseconds and preventing the client UI from freezing!
+ */
+export const runWithFailover = async (cloudCallback, localCallback, timeoutMs = 4000) => {
+  if (isFirebaseActive && !firebaseConnectionFailed) {
+    try {
+      // Race Firebase cloud action against a timeout trigger
+      const result = await Promise.race([
+        cloudCallback(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("FIREBASE_CONNECTION_TIMEOUT")), timeoutMs)
+        )
+      ]);
+      return result;
+    } catch (e) {
+      const isConnectionIssue = 
+        e.message === "FIREBASE_CONNECTION_TIMEOUT" || 
+        e.code === "auth/network-request-failed" || 
+        e.code === "auth/internal-error" ||
+        e.code === "auth/quota-exceeded" ||
+        e.message?.toLowerCase().includes("network") ||
+        e.message?.toLowerCase().includes("timeout") ||
+        e.message?.toLowerCase().includes("failed to fetch") ||
+        e.message?.toLowerCase().includes("storage/retry-limit-exceeded");
+        
+      if (isConnectionIssue) {
+        console.warn("🔧 SkillSync Failsafe: Firebase connection stalled or timed out. Activating Sandbox mode globally.", e);
+        firebaseConnectionFailed = true;
+        return localCallback();
+      }
+      throw e; // Rethrow normal database input validations (e.g. wrong password)
+    }
+  } else {
+    return localCallback();
+  }
+};
+
+// ==========================================
 // 1. AUTHENTICATION SERVICES
 // ==========================================
 
@@ -55,34 +102,30 @@ export const isFirebaseActive = checkFirebaseStatus();
  * Sign up a new user using Email and Password
  */
 export const registerUser = async (email, password, displayName, role = 'student') => {
-  if (isFirebaseActive) {
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      
-      // Initialize a profile in Firestore for this new user
-      const userProfile = {
-        uid: user.uid,
-        email: user.email,
-        displayName: displayName || user.email.split('@')[0],
-        photoURL: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
-        role,
-        streak: 1,
-        lastStudyDate: new Date().toISOString().split('T')[0],
-        notesCount: 0,
-        quizCount: 0,
-        avgQuizScore: 0,
-        createdAt: new Date().toISOString()
-      };
-      
-      await setDoc(doc(db, "users", user.uid), userProfile);
-      return { success: true, user: userProfile };
-    } catch (error) {
-      console.error("Firebase Registration Error: ", error);
-      throw error; // Pass error to UI so the student knows what went wrong (e.g. email already exists)
-    }
-  } else {
-    // LOCAL STORAGE FALLBACK
+  const cloudFn = async () => {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+    
+    // Initialize a profile in Firestore for this new user
+    const userProfile = {
+      uid: user.uid,
+      email: user.email,
+      displayName: displayName || user.email.split('@')[0],
+      photoURL: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
+      role,
+      streak: 1,
+      lastStudyDate: new Date().toISOString().split('T')[0],
+      notesCount: 0,
+      quizCount: 0,
+      avgQuizScore: 0,
+      createdAt: new Date().toISOString()
+    };
+    
+    await setDoc(doc(db, "users", user.uid), userProfile);
+    return { success: true, user: userProfile };
+  };
+
+  const localFn = () => {
     const mockUsers = JSON.parse(localStorage.getItem('mock_users') || '[]');
     if (mockUsers.some(u => u.email === email)) {
       throw new Error("auth/email-already-in-use");
@@ -108,38 +151,36 @@ export const registerUser = async (email, password, displayName, role = 'student
     localStorage.setItem('active_mock_session', JSON.stringify(mockProfile));
     
     return { success: true, user: mockProfile };
-  }
+  };
+
+  return runWithFailover(cloudFn, localFn, 4000);
 };
 
 /**
  * Log in an existing user with Email and Password
  */
 export const loginUser = async (email, password) => {
-  if (isFirebaseActive) {
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+  const cloudFn = async () => {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+    
+    // Get their profile from Firestore
+    const profileSnap = await getDoc(doc(db, "users", user.uid));
+    if (profileSnap.exists()) {
+      const profile = profileSnap.data();
       
-      // Get their profile from Firestore
-      const profileSnap = await getDoc(doc(db, "users", user.uid));
-      if (profileSnap.exists()) {
-        const profile = profileSnap.data();
-        
-        // Dynamic streak calculation! If they studied yesterday, increment or maintain streak.
-        const updatedProfile = updateStreak(profile);
-        await updateDoc(doc(db, "users", user.uid), updatedProfile);
-        
-        return { success: true, user: updatedProfile };
-      }
+      // Dynamic streak calculation! If they studied yesterday, increment or maintain streak.
+      const updatedProfile = updateStreak(profile);
+      await updateDoc(doc(db, "users", user.uid), updatedProfile);
       
-      // Fallback if profile doesn't exist in Firestore
-      return { success: true, user: { uid: user.uid, email: user.email } };
-    } catch (error) {
-      console.error("Firebase Login Error: ", error);
-      throw error;
+      return { success: true, user: updatedProfile };
     }
-  } else {
-    // LOCAL STORAGE FALLBACK
+    
+    // Fallback if profile doesn't exist in Firestore
+    return { success: true, user: { uid: user.uid, email: user.email } };
+  };
+
+  const localFn = () => {
     const mockUsers = JSON.parse(localStorage.getItem('mock_users') || '[]');
     const matchedUser = mockUsers.find(u => u.email === email && u.password === password);
     
@@ -155,101 +196,93 @@ export const loginUser = async (email, password) => {
     localStorage.setItem('active_mock_session', JSON.stringify(updatedProfile));
     
     return { success: true, user: updatedProfile };
-  }
+  };
+
+  return runWithFailover(cloudFn, localFn, 4000);
 };
 
 /**
  * Single Sign-On with Google
  */
 export const loginWithGoogle = async (role = 'student') => {
-  if (isFirebaseActive) {
+  const cloudFn = async () => {
     let authenticatedUser = null;
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      authenticatedUser = result.user;
-      
-      // Check if user profile already exists
-      const userDoc = doc(db, "users", authenticatedUser.uid);
-      const profileSnap = await getDoc(userDoc);
-      
-      let userProfile = {};
-      if (!profileSnap.exists()) {
-        // Initialize new Google user profile
-        userProfile = {
-          uid: authenticatedUser.uid,
-          email: authenticatedUser.email,
-          displayName: authenticatedUser.displayName || authenticatedUser.email.split('@')[0],
-          photoURL: authenticatedUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${authenticatedUser.uid}`,
-          role,
-          streak: 1,
-          lastStudyDate: new Date().toISOString().split('T')[0],
-          notesCount: 0,
-          quizCount: 0,
-          avgQuizScore: 0,
-          createdAt: new Date().toISOString()
-        };
-        await setDoc(userDoc, userProfile);
-      } else {
-        userProfile = updateStreak(profileSnap.data());
-        // Ensure role is preserved or updated if set
-        if (!userProfile.role) {
-          userProfile.role = role;
-        }
-        await updateDoc(userDoc, userProfile);
-      }
-      
-      return { success: true, user: userProfile };
-    } catch (error) {
-      console.warn("Firestore Database error during Google login. Falling back to authentic local credential session.", error);
-      
-      // CHECK IF WE HAVE ACTIVE GOOGLE CREDENTIALS IN THE SESSION
-      const user = authenticatedUser || auth.currentUser;
-      if (user) {
-        const realProfile = {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName || user.email.split('@')[0],
-          photoURL: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
-          role,
-          streak: 1,
-          lastStudyDate: new Date().toISOString().split('T')[0],
-          notesCount: 0,
-          quizCount: 0,
-          avgQuizScore: 0,
-          createdAt: new Date().toISOString()
-        };
-        
-        // Save in local active session so they log in as themselves!
-        localStorage.setItem('active_mock_session', JSON.stringify(realProfile));
-        return { success: true, user: realProfile };
-      }
-      
-      // Complete popup cancellation fallback
-      const mockUid = 'mock_google_' + Math.random().toString(36).substr(2, 9);
-      const mockProfile = {
-        uid: mockUid,
-        email: "google_teacher@gmail.com",
-        displayName: role === 'teacher' ? "Educator Professor 👨‍🏫" : "Google Scholar 🎓",
-        photoURL: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${mockUid}`,
+    const result = await signInWithPopup(auth, googleProvider);
+    authenticatedUser = result.user;
+    
+    // Check if user profile already exists
+    const userDoc = doc(db, "users", authenticatedUser.uid);
+    const profileSnap = await getDoc(userDoc);
+    
+    let userProfile = {};
+    if (!profileSnap.exists()) {
+      // Initialize new Google user profile
+      userProfile = {
+        uid: authenticatedUser.uid,
+        email: authenticatedUser.email,
+        displayName: authenticatedUser.displayName || authenticatedUser.email.split('@')[0],
+        photoURL: authenticatedUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${authenticatedUser.uid}`,
         role,
-        streak: 3,
+        streak: 1,
         lastStudyDate: new Date().toISOString().split('T')[0],
-        notesCount: 2,
-        quizCount: 1,
-        avgQuizScore: 90,
+        notesCount: 0,
+        quizCount: 0,
+        avgQuizScore: 0,
+        createdAt: new Date().toISOString()
+      };
+      await setDoc(userDoc, userProfile);
+    } else {
+      userProfile = updateStreak(profileSnap.data());
+      // Ensure role is preserved or updated if set
+      if (!userProfile.role) {
+        userProfile.role = role;
+      }
+      await updateDoc(userDoc, userProfile);
+    }
+    
+    return { success: true, user: userProfile };
+  };
+
+  const localFn = () => {
+    const user = auth.currentUser;
+    if (user) {
+      const realProfile = {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || user.email.split('@')[0],
+        photoURL: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
+        role,
+        streak: 1,
+        lastStudyDate: new Date().toISOString().split('T')[0],
+        notesCount: 0,
+        quizCount: 0,
+        avgQuizScore: 0,
         createdAt: new Date().toISOString()
       };
       
-      localStorage.setItem('active_mock_session', JSON.stringify(mockProfile));
-      return { success: true, user: mockProfile };
+      // Save in local active session so they log in as themselves!
+      localStorage.setItem('active_mock_session', JSON.stringify(realProfile));
+      return { success: true, user: realProfile };
     }
-  } else {
-    // LOCAL STORAGE FALLBACK
+    
+    // Sandbox Google Login Account Selector Prompt!
+    const defaultEmail = role === 'teacher' ? 'teacher_expert@gmail.com' : 'scholar_student@gmail.com';
+    const chosenEmail = window.prompt("🎓 SkillSync Sandbox Google SSO:\n\nPlease enter the Google email address you want to log in with:", defaultEmail);
+    
+    if (chosenEmail === null) {
+      // User cancelled prompt
+      throw new Error("auth/popup-closed-by-user");
+    }
+    
+    const emailToUse = chosenEmail.trim() || defaultEmail;
+    const namePart = emailToUse.split('@')[0];
+    const cleanName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+    
     const mockUid = 'mock_google_' + Math.random().toString(36).substr(2, 9);
     const mockProfile = {
       uid: mockUid,
-      email: "google_teacher@gmail.com",
-      displayName: role === 'teacher' ? "Educator Professor 👨‍🏫" : "Google Scholar 🎓",
+      email: emailToUse,
+      displayName: role === 'teacher' ? `${cleanName} 👨‍🏫` : `${cleanName} 🎓`,
       photoURL: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${mockUid}`,
       role,
       streak: 3,
@@ -262,17 +295,22 @@ export const loginWithGoogle = async (role = 'student') => {
     
     localStorage.setItem('active_mock_session', JSON.stringify(mockProfile));
     return { success: true, user: mockProfile };
-  }
+  };
+
+  return runWithFailover(cloudFn, localFn, 6000);
 };
 
 /**
  * Log out user from active session
  */
 export const logoutUser = async () => {
+  localStorage.removeItem('active_mock_session');
   if (isFirebaseActive) {
-    await signOut(auth);
-  } else {
-    localStorage.removeItem('active_mock_session');
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.warn("Firebase signout error:", e);
+    }
   }
   return { success: true };
 };
@@ -371,42 +409,39 @@ export const uploadStudyNote = async (file, fileName, subject, userId, userRole 
   const isPublic = userRole === 'teacher';
   const teacherName = isPublic ? (userName || 'Class Teacher 👨‍🏫') : '';
   
-  if (isFirebaseActive) {
-    try {
-      // 1. Upload actual file to Firebase Storage
-      const fileRef = ref(storage, `notes/${userId}/${Date.now()}_${fileName}`);
-      const uploadResult = await uploadBytes(fileRef, file);
-      const fileURL = await getDownloadURL(uploadResult.ref);
-      
-      // 2. Save note meta records to Firestore
-      const noteData = {
-        fileName,
-        fileURL,
-        fileType: file.type,
-        subject,
-        uploadedBy: userId,
-        uploadDate,
-        summary: '', // Empty initially, filled by Gemini later
-        keyTakeaways: [],
-        isPublic,
-        teacherName
-      };
-      
-      const docRef = await addDoc(collection(db, "notes"), noteData);
-      
-      // 3. Increment total uploaded notes in User Profile
-      await incrementUserNotesCount(userId);
-      
-      return { id: docRef.id, ...noteData };
-    } catch (error) {
-      console.error("Firebase Note Upload Error: ", error);
-      // If Firestore or Storage rules are blocked, fall back to Local Storage
-      console.warn("Storage is blocked in dashboard. Gracefully writing note to local system.");
-      return uploadNoteLocally(file, fileName, subject, userId, uploadDate, isPublic, teacherName);
-    }
-  } else {
+  const cloudFn = async () => {
+    // 1. Upload actual file to Firebase Storage
+    const fileRef = ref(storage, `notes/${userId}/${Date.now()}_${fileName}`);
+    const uploadResult = await uploadBytes(fileRef, file);
+    const fileURL = await getDownloadURL(uploadResult.ref);
+    
+    // 2. Save note meta records to Firestore
+    const noteData = {
+      fileName,
+      fileURL,
+      fileType: file.type,
+      subject,
+      uploadedBy: userId,
+      uploadDate,
+      summary: '', // Empty initially, filled by Gemini later
+      keyTakeaways: [],
+      isPublic,
+      teacherName
+    };
+    
+    const docRef = await addDoc(collection(db, "notes"), noteData);
+    
+    // 3. Increment total uploaded notes in User Profile
+    await incrementUserNotesCount(userId);
+    
+    return { id: docRef.id, ...noteData };
+  };
+
+  const localFn = () => {
     return uploadNoteLocally(file, fileName, subject, userId, uploadDate, isPublic, teacherName);
-  }
+  };
+
+  return runWithFailover(cloudFn, localFn, 4000);
 };
 
 // Helper function to upload note locally
@@ -442,36 +477,35 @@ const uploadNoteLocally = async (file, fileName, subject, userId, uploadDate, is
  * Fetch all notes uploaded by a specific user or shared publicly
  */
 export const getUserNotes = async (userId, userRole = 'student') => {
-  if (isFirebaseActive) {
-    try {
-      // Query notes collection
-      const q = query(collection(db, "notes"));
-      const snapshot = await getDocs(q);
-      const notes = [];
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        if (userRole === 'teacher') {
-          // Teacher sees only notes uploaded by them
-          if (data.uploadedBy === userId) {
-            notes.push({ id: doc.id, ...data });
-          }
-        } else {
-          // Student sees all teacher-shared notes (isPublic === true) + their own uploads if any
-          if (data.isPublic || data.uploadedBy === userId) {
-            notes.push({ id: doc.id, ...data });
-          }
+  const cloudFn = async () => {
+    // Query notes collection
+    const q = query(collection(db, "notes"));
+    const snapshot = await getDocs(q);
+    const notes = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (userRole === 'teacher') {
+        // Teacher sees only notes uploaded by them
+        if (data.uploadedBy === userId) {
+          notes.push({ id: doc.id, ...data });
         }
-      });
-      // Sort desc
-      notes.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
-      return notes;
-    } catch (e) {
-      console.warn("Error fetching cloud notes. Loading local storage notes instead.", e);
-      return getLocalNotes(userId, userRole);
-    }
-  } else {
+      } else {
+        // Student sees all teacher-shared notes (isPublic === true) + their own uploads if any
+        if (data.isPublic || data.uploadedBy === userId) {
+          notes.push({ id: doc.id, ...data });
+        }
+      }
+    });
+    // Sort desc
+    notes.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
+    return notes;
+  };
+
+  const localFn = () => {
     return getLocalNotes(userId, userRole);
-  }
+  };
+
+  return runWithFailover(cloudFn, localFn, 3500);
 };
 
 const getLocalNotes = (userId, userRole = 'student') => {

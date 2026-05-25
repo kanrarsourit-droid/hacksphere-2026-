@@ -24,6 +24,9 @@ export const storage = getStorage(app);
 
 // Provider for "Sign in with Google"
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account'
+});
 
 // Export the main app
 export default app;

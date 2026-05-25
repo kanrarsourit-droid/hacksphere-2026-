@@ -56,6 +56,14 @@ const Login = ({ onLoginSuccess }) => {
       } else {
         // Login user
         const result = await loginUser(email, password);
+        
+        // Failsafe role mismatch validation!
+        if (result.user.role && result.user.role !== role) {
+          setError(`This email is registered as a ${result.user.role === 'teacher' ? 'Teacher' : 'Student'}. Please log in using the correct portal.`);
+          setLoading(false);
+          return;
+        }
+        
         onLoginSuccess(result.user);
       }
     } catch (err) {
@@ -86,6 +94,13 @@ const Login = ({ onLoginSuccess }) => {
     try {
       const result = await loginWithGoogle(role);
       let user = result.user;
+      
+      // If they had an existing account, check if the selected role matches their actual registered role!
+      if (user.role && user.role !== role) {
+        setError(`This Google account is registered as a ${user.role === 'teacher' ? 'Teacher' : 'Student'}. Please log in using the correct portal.`);
+        setLoading(false);
+        return;
+      }
       
       // If the authenticated user profile doesn't have a role yet, assign the picker role!
       if (!user.role) {
