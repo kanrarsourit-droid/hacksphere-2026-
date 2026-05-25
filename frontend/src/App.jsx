@@ -18,7 +18,7 @@ import Subjects from './pages/Subjects';
 import AITools from './pages/AITools';
 
 // Services
-import { listenToAuthChanges, logoutUser } from './services/db';
+import { listenToAuthChanges, logoutUser, setFirebaseOffline } from './services/db';
 
 // Services
 // (Note: Removed duplicate imports or placeholders)
@@ -42,7 +42,28 @@ function App() {
 
   // Listen to Firebase or Local Storage Authentication changes
   useEffect(() => {
+    let resolved = false;
+
+    // Failsafe connection timer: if Firebase connection hangs for >2.5s, bypass loading screen!
+    const failsafeTimer = setTimeout(() => {
+      if (!resolved) {
+        console.warn("⏱️ SkillSync Session Sync timed out. Bypassing loading screen...");
+        
+        // Check local storage for mock session before defaulting to null
+        const mockSession = localStorage.getItem('active_mock_session');
+        if (mockSession) {
+          setActiveUser(JSON.parse(mockSession));
+        } else {
+          setActiveUser(null);
+        }
+        setLoadingSession(false);
+      }
+    }, 2500);
+
     const unsubscribe = listenToAuthChanges((user) => {
+      resolved = true;
+      clearTimeout(failsafeTimer);
+      
       setActiveUser(user);
       setLoadingSession(false);
       
@@ -51,11 +72,18 @@ function App() {
         setCurrentPage('dashboard');
         setActiveTab('home');
       } else {
-        setCurrentPage('home');
+        // Only reset to home if they are not already on other public routes
+        setCurrentPage(prev => {
+          if (['features', 'subjects', 'aitools', 'login'].includes(prev)) return prev;
+          return 'home';
+        });
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(failsafeTimer);
+      unsubscribe();
+    };
   }, []);
 
   // Handle Logout

@@ -56,15 +56,22 @@ const Login = ({ onLoginSuccess }) => {
       } else {
         // Login user
         const result = await loginUser(email, password);
+        let loggedInUser = result.user;
         
         // Failsafe role mismatch validation!
-        if (result.user.role && result.user.role !== role) {
-          setError(`This email is registered as a ${result.user.role === 'teacher' ? 'Teacher' : 'Student'}. Please log in using the correct portal.`);
+        if (loggedInUser.role && loggedInUser.role !== role) {
+          setError(`This email is registered as a ${loggedInUser.role === 'teacher' ? 'Teacher' : 'Student'}. Please log in using the correct portal.`);
           setLoading(false);
           return;
         }
+
+        // Legacy support: If the database profile does not have a role yet, assign the portal role!
+        if (!loggedInUser.role) {
+          loggedInUser.role = role;
+          await updateUserProfile(loggedInUser.uid, { role });
+        }
         
-        onLoginSuccess(result.user);
+        onLoginSuccess(loggedInUser);
       }
     } catch (err) {
       console.error(err);
@@ -110,6 +117,12 @@ const Login = ({ onLoginSuccess }) => {
       onLoginSuccess(user);
     } catch (err) {
       console.error(err);
+      const errMsg = err.message || "";
+      const errCode = err.code || "";
+      if (errMsg.includes("popup-closed-by-user") || errCode.includes("popup-closed-by-user")) {
+        // User closed Google Popup or cancelled Sandbox email selector dialog, exit silently
+        return;
+      }
       setError("Google Login failed. Please try again.");
     } finally {
       setLoading(false);

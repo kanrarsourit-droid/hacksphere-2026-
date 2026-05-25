@@ -51,8 +51,17 @@ export const isFirebaseActive = checkFirebaseStatus();
 // FAILSAFE CONCURRENCY TIMEOUT ENGINE
 // ==========================================
 
-// Global failover indicator
-let firebaseConnectionFailed = false;
+// Global failover indicator cached in sessionStorage to survive page refreshes!
+let firebaseConnectionFailed = sessionStorage.getItem('skillsync_connection_failed') === 'true';
+
+/**
+ * Manually switch to offline Sandbox mode globally
+ */
+export const setFirebaseOffline = () => {
+  firebaseConnectionFailed = true;
+  sessionStorage.setItem('skillsync_connection_failed', 'true');
+  console.warn("🔧 SkillSync Failsafe: Switched to sandbox offline database globally.");
+};
 
 /**
  * Failsafe wrapper that races any Firebase async call against a 4-second timeout limit.
@@ -85,6 +94,7 @@ export const runWithFailover = async (cloudCallback, localCallback, timeoutMs = 
       if (isConnectionIssue) {
         console.warn("🔧 SkillSync Failsafe: Firebase connection stalled or timed out. Activating Sandbox mode globally.", e);
         firebaseConnectionFailed = true;
+        sessionStorage.setItem('skillsync_connection_failed', 'true');
         return localCallback();
       }
       throw e; // Rethrow normal database input validations (e.g. wrong password)
@@ -274,11 +284,24 @@ export const loginWithGoogle = async (role = 'student') => {
       throw new Error("auth/popup-closed-by-user");
     }
     
-    const emailToUse = chosenEmail.trim() || defaultEmail;
+    const emailToUse = chosenEmail.trim().toLowerCase() || defaultEmail.toLowerCase();
+    
+    // LOOK UP Mock Database first to enforce real-world database rules!
+    const mockUsers = JSON.parse(localStorage.getItem('mock_users') || '[]');
+    const existingMock = mockUsers.find(u => u.email.toLowerCase() === emailToUse);
+    
+    if (existingMock) {
+      console.log("♻️ Sandbox SSO: Found existing user profile. Restoring cached session...", existingMock.profile);
+      // Save existing user in active session
+      localStorage.setItem('active_mock_session', JSON.stringify(existingMock.profile));
+      return { success: true, user: existingMock.profile };
+    }
+    
+    // Brand new mock Google account registration!
     const namePart = emailToUse.split('@')[0];
     const cleanName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
-    
     const mockUid = 'mock_google_' + Math.random().toString(36).substr(2, 9);
+    
     const mockProfile = {
       uid: mockUid,
       email: emailToUse,
@@ -293,11 +316,15 @@ export const loginWithGoogle = async (role = 'student') => {
       createdAt: new Date().toISOString()
     };
     
+    // Persist new mock profile in mock database list so they can log in via both forms!
+    mockUsers.push({ email: emailToUse, password: 'google_oauth_bypass', profile: mockProfile });
+    localStorage.setItem('mock_users', JSON.stringify(mockUsers));
     localStorage.setItem('active_mock_session', JSON.stringify(mockProfile));
+    
     return { success: true, user: mockProfile };
   };
 
-  return runWithFailover(cloudFn, localFn, 6000);
+  return runWithFailover(cloudFn, localFn, 300000);
 };
 
 /**
@@ -319,28 +346,27 @@ export const logoutUser = async () => {
  * Update user profile details (displayName, photoURL, bio, phone, hobbies)
  */
 export const updateUserProfile = async (userId, updatedFields) => {
-  if (isFirebaseActive && !userId.startsWith('mock_')) {
-    try {
-      const userDoc = doc(db, "users", userId);
-      await updateDoc(userDoc, updatedFields);
-      
-      // Update local storage representation if active
-      const mockSession = localStorage.getItem('active_mock_session');
-      if (mockSession) {
-        const parsed = JSON.parse(mockSession);
-        if (parsed.uid === userId) {
-          const updated = { ...parsed, ...updatedFields };
-          localStorage.setItem('active_mock_session', JSON.stringify(updated));
-        }
+  const cloudFn = async () => {
+    const userDoc = doc(db, "users", userId);
+    await updateDoc(userDoc, updatedFields);
+    
+    // Update local storage representation if active
+    const mockSession = localStorage.getItem('active_mock_session');
+    if (mockSession) {
+      const parsed = JSON.parse(mockSession);
+      if (parsed.uid === userId) {
+        const updated = { ...parsed, ...updatedFields };
+        localStorage.setItem('active_mock_session', JSON.stringify(updated));
       }
-      return { success: true, user: updatedFields };
-    } catch (e) {
-      console.warn("Failed to update cloud profile. Updating locally.", e);
-      return updateLocalProfile(userId, updatedFields);
     }
-  } else {
+    return { success: true, user: updatedFields };
+  };
+
+  const localFn = () => {
     return updateLocalProfile(userId, updatedFields);
-  }
+  };
+
+  return runWithFailover(cloudFn, localFn, 4000);
 };
 
 const updateLocalProfile = (userId, updatedFields) => {
@@ -373,14 +399,21 @@ export const listenToAuthChanges = (callback) => {
         try {
           const snap = await getDoc(doc(db, "users", firebaseUser.uid));
           if (snap.exists()) {
-            callback(snap.data());
+            const profile = snap.data();
+            localStorage.setItem('active_mock_session', JSON.stringify(profile));
+            callback(profile);
           } else {
-            callback({ uid: firebaseUser.uid, email: firebaseUser.email });
+            const basic = { uid: firebaseUser.uid, email: firebaseUser.email };
+            localStorage.setItem('active_mock_session', JSON.stringify(basic));
+            callback(basic);
           }
         } catch (e) {
-          callback({ uid: firebaseUser.uid, email: firebaseUser.email });
+          const basic = { uid: firebaseUser.uid, email: firebaseUser.email };
+          localStorage.setItem('active_mock_session', JSON.stringify(basic));
+          callback(basic);
         }
       } else {
+        localStorage.removeItem('active_mock_session');
         callback(null);
       }
     });

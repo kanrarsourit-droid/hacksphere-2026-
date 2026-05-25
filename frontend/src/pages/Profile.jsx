@@ -16,7 +16,8 @@ import {
   Save,
   Check,
   Mail,
-  HelpCircle
+  HelpCircle,
+  UploadCloud
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import GlassCard from '../components/GlassCard';
@@ -51,6 +52,38 @@ const Profile = ({ activeUser, onUpdateUser }) => {
     { name: 'Leo', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Leo' },
     { name: 'Luna', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Luna' },
   ];
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Image size must be less than 2MB!");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64Image = reader.result;
+      setEditPhoto(base64Image);
+      
+      // Instant database upload and session header update!
+      try {
+        setIsSaving(true);
+        const result = await updateUserProfile(activeUser.uid, { photoURL: base64Image });
+        if (result.success) {
+          onUpdateUser({ photoURL: base64Image });
+          setSaveSuccess(true);
+          setTimeout(() => setSaveSuccess(false), 3000);
+        }
+      } catch (err) {
+        console.error("Instant avatar upload failed:", err);
+      } finally {
+        setIsSaving(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     const loadProfileStats = async () => {
@@ -127,47 +160,89 @@ const Profile = ({ activeUser, onUpdateUser }) => {
     }
   };
 
+  const isTeacher = activeUser?.role === 'teacher';
+
   // Comparative subject chart data
-  const subjectChartData = [
-    { name: 'Physics', score: notesCount > 0 ? 88 : 0 },
-    { name: 'Chemistry', score: quizCount > 0 ? 74 : 0 },
-    { name: 'Math', score: avgScore > 0 ? avgScore : 0 },
-    { name: 'CompSci', score: roadmapCount > 0 ? 95 : 0 },
-  ];
+  const subjectChartData = isTeacher
+    ? [
+        { name: 'Curriculum', score: notesCount > 0 ? 95 : 0 },
+        { name: 'Broadcasting', score: 85 },
+        { name: 'Quiz Prep', score: quizCount > 0 ? 90 : 0 },
+        { name: 'Tutoring', score: avgScore > 0 ? avgScore : 0 },
+      ]
+    : [
+        { name: 'Physics', score: notesCount > 0 ? 88 : 0 },
+        { name: 'Chemistry', score: quizCount > 0 ? 74 : 0 },
+        { name: 'Math', score: avgScore > 0 ? avgScore : 0 },
+        { name: 'CompSci', score: roadmapCount > 0 ? 95 : 0 },
+      ];
 
   // List of unlockable academic badges
-  const achievementsList = [
-    {
-      id: "ai_scholar",
-      title: "AI Pioneer 🎓",
-      desc: "Uploaded your first study note to the AI Summarizer cabinet.",
-      unlocked: notesCount >= 1
-    },
-    {
-      id: "streak_specialist",
-      title: "Streak Specialist 🔥",
-      desc: "Achieved a 3-day active learning study streak.",
-      unlocked: (activeUser.streak || 1) >= 3
-    },
-    {
-      id: "exam_crusher",
-      title: "A+ Overachiever 🏆",
-      desc: "Achieved an average score of 85% or higher on practice exams.",
-      unlocked: avgScore >= 85
-    },
-    {
-      id: "polymath",
-      title: "Active Polymath 📚",
-      desc: "Uploaded study materials for 3 or more subjects.",
-      unlocked: notesCount >= 3
-    },
-    {
-      id: "roadmap_architect",
-      title: "Roadmap Architect 🗺️",
-      desc: "Generated your first week-by-week study roadmap.",
-      unlocked: roadmapCount >= 1
-    }
-  ];
+  const achievementsList = isTeacher
+    ? [
+        {
+          id: "ai_scholar",
+          title: "Digital Educator 📚",
+          desc: "Published your first syllabus study notes into the digital cabinet.",
+          unlocked: notesCount >= 1
+        },
+        {
+          id: "streak_specialist",
+          title: "Instructional Streak ⚡",
+          desc: "Maintained active classroom instruction for 3+ consecutive days.",
+          unlocked: (activeUser.streak || 1) >= 3
+        },
+        {
+          id: "exam_crusher",
+          title: "High Impact Mentor 🎓",
+          desc: "Helped students achieve high performance streaks across sections.",
+          unlocked: true
+        },
+        {
+          id: "polymath",
+          title: "Curriculum Specialist 🏛️",
+          desc: "Published study documents covering 3 or more academic subject tracks.",
+          unlocked: notesCount >= 3
+        },
+        {
+          id: "roadmap_architect",
+          title: "Quiz Architect 📝",
+          desc: "Generated customized practice exam materials for student training.",
+          unlocked: quizCount >= 1
+        }
+      ]
+    : [
+        {
+          id: "ai_scholar",
+          title: "AI Pioneer 🎓",
+          desc: "Uploaded your first study note to the AI Summarizer cabinet.",
+          unlocked: notesCount >= 1
+        },
+        {
+          id: "streak_specialist",
+          title: "Streak Specialist 🔥",
+          desc: "Achieved a 3-day active learning study streak.",
+          unlocked: (activeUser.streak || 1) >= 3
+        },
+        {
+          id: "exam_crusher",
+          title: "A+ Overachiever 🏆",
+          desc: "Achieved an average score of 85% or higher on practice exams.",
+          unlocked: avgScore >= 85
+        },
+        {
+          id: "polymath",
+          title: "Active Polymath 📚",
+          desc: "Uploaded study materials for 3 or more subjects.",
+          unlocked: notesCount >= 3
+        },
+        {
+          id: "roadmap_architect",
+          title: "Roadmap Architect 🗺️",
+          desc: "Generated your first week-by-week study roadmap.",
+          unlocked: roadmapCount >= 1
+        }
+      ];
 
   const unlockedCount = achievementsList.filter(a => a.unlocked).length;
 
@@ -196,14 +271,41 @@ const Profile = ({ activeUser, onUpdateUser }) => {
             <Sparkles className="w-4 h-4 animate-pulse" />
           </div>
 
-          {/* Large Avatar */}
-          <img 
-            src={activeUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${activeUser.uid}`}
-            alt="profile avatar" 
-            className="w-20 h-20 rounded-full border-2 border-purple-500/30 p-1 mx-auto bg-space-850 dark:bg-space-900 light:bg-white shadow-lg"
-          />
+          {/* Large Avatar with click/drag-to-upload hover overlay */}
+          <div className="relative group mx-auto w-20 h-20 rounded-full border-2 border-purple-500/30 p-1 bg-space-850 dark:bg-space-900 light:bg-white shadow-lg overflow-hidden flex items-center justify-center">
+            <img 
+              src={editPhoto || activeUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${activeUser.uid}`}
+              alt="profile avatar" 
+              className="w-full h-full rounded-full object-cover"
+            />
+            {/* Dark glass label overlay directly over the image */}
+            <label className="absolute inset-0 bg-black/75 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center cursor-pointer transition-opacity text-[8px] font-bold text-white gap-0.5 z-10">
+              <UploadCloud className="w-4 h-4 text-purple-400" />
+              <span>Change Photo</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+            </label>
+          </div>
+          
+          {/* Clickable text link directly below the picture */}
+          <div className="mt-2.5 relative">
+            <label className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-400 hover:text-purple-300 transition-colors cursor-pointer">
+              <UploadCloud className="w-3.5 h-3.5" />
+              <span>Upload Profile Picture</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+            </label>
+          </div>
 
-          <h2 className="text-lg font-bold text-white dark:text-white light:text-indigo-950 mt-4">{activeUser.displayName || 'Student'}</h2>
+          <h2 className="text-lg font-bold text-white dark:text-white light:text-indigo-950 mt-4">{activeUser.displayName || (isTeacher ? 'Teacher' : 'Student')}</h2>
           <p className="text-xs text-slate-400 dark:text-slate-400 light:text-zinc-500 mt-0.5 flex items-center justify-center gap-1">
             <Mail className="w-3.5 h-3.5 text-purple-400" />
             <span>{activeUser.email}</span>
@@ -221,7 +323,7 @@ const Profile = ({ activeUser, onUpdateUser }) => {
           <div className="mt-4 pt-4 border-t border-white/5 dark:border-white/5 light:border-zinc-200/50 text-left">
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider pl-0.5">Biography</span>
             <p className="text-xs text-slate-400 dark:text-slate-400 light:text-zinc-600 mt-1 pl-0.5 leading-relaxed italic">
-              {activeUser.bio || "No biography written yet. Use the 'Modify Profile' card on the right to share your bio!"}
+              {activeUser.bio || (isTeacher ? "No biography written yet. Use the 'Modify Profile' card on the right to publish your bio!" : "No biography written yet. Use the 'Modify Profile' card on the right to share your bio!")}
             </p>
           </div>
 
@@ -248,47 +350,49 @@ const Profile = ({ activeUser, onUpdateUser }) => {
           {/* Registration Date */}
           <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-500 mt-6 font-semibold uppercase tracking-wider">
             <Calendar className="w-3.5 h-3.5 text-purple-400" />
-            <span>Enrolled: {activeUser.createdAt ? new Date(activeUser.createdAt).toLocaleDateString() : new Date().toLocaleDateString()}</span>
+            <span>{isTeacher ? "Faculty Appointed: " : "Enrolled: "}{activeUser.createdAt ? new Date(activeUser.createdAt).toLocaleDateString() : new Date().toLocaleDateString()}</span>
           </div>
         </GlassCard>
 
         {/* METRICS SUMMARY GRID */}
         <GlassCard className="p-5 border border-white/5 space-y-4">
-          <h3 className="text-xs font-bold text-white dark:text-white light:text-indigo-900 border-b border-white/5 dark:border-white/5 light:border-zinc-200 pb-2 uppercase tracking-wide">Academic Record</h3>
+          <h3 className="text-xs font-bold text-white dark:text-white light:text-indigo-900 border-b border-white/5 dark:border-white/5 light:border-zinc-200 pb-2 uppercase tracking-wide">
+            {isTeacher ? "Faculty Portfolio Stats" : "Academic Record"}
+          </h3>
           
           <div className="space-y-3.5">
             {/* Notes */}
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400 dark:text-slate-400 light:text-zinc-600 flex items-center gap-2">
                 <FileText className="w-4 h-4 text-purple-400" />
-                Uploaded Documents
+                {isTeacher ? "Published Lesson Notes" : "Uploaded Documents"}
               </span>
-              <span className="font-bold text-white dark:text-white light:text-indigo-950">{notesCount} notes</span>
+              <span className="font-bold text-white dark:text-white light:text-indigo-950">{notesCount} items</span>
             </div>
 
             {/* Quizzes */}
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400 dark:text-slate-400 light:text-zinc-600 flex items-center gap-2">
                 <BrainCircuit className="w-4 h-4 text-indigo-400" />
-                Quizzes Answered
+                {isTeacher ? "Practice Quizzes Created" : "Quizzes Answered"}
               </span>
-              <span className="font-bold text-white dark:text-white light:text-indigo-950">{quizCount} sessions</span>
+              <span className="font-bold text-white dark:text-white light:text-indigo-950">{quizCount} units</span>
             </div>
 
             {/* Average grade */}
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400 dark:text-slate-400 light:text-zinc-600 flex items-center gap-2">
                 <Award className="w-4 h-4 text-pink-400" />
-                Practice Score Avg
+                {isTeacher ? "Mentorship Score Avg" : "Practice Score Avg"}
               </span>
-              <span className="font-bold text-white dark:text-white light:text-indigo-950">{avgScore}%</span>
+              <span className="font-bold text-white dark:text-white light:text-indigo-950">{isTeacher ? "96%" : `${avgScore}%`}</span>
             </div>
 
             {/* Streaks */}
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400 dark:text-slate-400 light:text-zinc-600 flex items-center gap-2">
                 <Flame className="w-4 h-4 text-orange-400" />
-                Active Streak
+                {isTeacher ? "Consecutive Lecture Days" : "Active Streak"}
               </span>
               <span className="font-bold text-white dark:text-white light:text-indigo-950">{activeUser.streak || 1} days</span>
             </div>
@@ -366,7 +470,7 @@ const Profile = ({ activeUser, onUpdateUser }) => {
               <div className="flex flex-col gap-1.5 md:col-span-2">
                 <label className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-500 pl-1">Biography / About Me</label>
                 <textarea
-                  placeholder="Tell us about yourself! E.g. I am a sophomore physics student aiming to master quantum mechanics..."
+                  placeholder={isTeacher ? "Tell us about yourself! E.g. I am an AP Science educator aiming to simplify complex topics..." : "Tell us about yourself! E.g. I am a sophomore physics student aiming to master quantum mechanics..."}
                   rows={2}
                   value={editBio}
                   onChange={(e) => setEditBio(e.target.value)}
