@@ -1,0 +1,39 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if the user is logged in
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if the user is accessing their own data
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Users Collection: Users can read and write only their own user records
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Notes Collection: Users can read and write only notes they created
+    match /notes/{noteId} {
+      allow read, write: if isAuthenticated() && request.resource.data.uploadedBy == request.auth.uid;
+      allow read, delete: if isAuthenticated() && resource.data.uploadedBy == request.auth.uid;
+    }
+
+    // Quizzes Collection: Users can read and write their own quizzes
+    match /quizzes/{quizId} {
+      allow read, write: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Roadmaps Collection: Users can read and write their own roadmaps
+    match /roadmaps/{roadmapId} {
+      allow read, write: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
