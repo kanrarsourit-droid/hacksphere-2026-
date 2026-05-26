@@ -6,11 +6,14 @@ import {
   Terminal, 
   HelpCircle,
   BookOpen,
-  ArrowRight
+  ArrowRight,
+  Key,
+  FileText
 } from 'lucide-react';
 import GlassCard from '../components/GlassCard';
 import LoadingState from '../components/LoadingState';
 import { solveAcademicDoubt } from '../services/ai';
+import { getUserNotes } from '../services/db';
 
 /**
  * SkillSync AI - Futuristic AI Doubt Solver Chatbot Terminal
@@ -20,13 +23,49 @@ const DoubtSolver = ({ activeUser }) => {
     {
       id: 'welcome',
       sender: 'ai',
-      text: "### Hello student! 👋\n\nI am your dedicated **SkillSync AI Doubt Solver**. I'm connected to the Google Gemini model in the cloud to act as your personalized 24/7 study mentor.\n\nYou can type any academic question, formula derivation, or coding bug below. I will explain it step-by-step!",
+      text: "### Hello student! 👋\n\nI am your dedicated **SkillSync AI Doubt Solver**. I'm connected to the Google Gemini model in the cloud to act as your personalized 24/7 study mentor.\n\nYou can select a **Focus Subject** and reference any **Uploaded Study Note** from the select boxes below, then ask me absolutely any question. I will read your document and explain it step-by-step!",
       timestamp: new Date()
     }
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef(null);
+
+  // Subject and Note selector states
+  const [subjectsList] = useState(['General Studies', 'Mathematics', 'Physics', 'Chemistry', 'Computer Science', 'Biology', 'Literature']);
+  const [selectedSubject, setSelectedSubject] = useState('General Studies');
+  const [notesList, setNotesList] = useState([]);
+  const [selectedNoteId, setSelectedNoteId] = useState('');
+  const [loadingNotes, setLoadingNotes] = useState(false);
+
+  // Load user notes on mount
+  useEffect(() => {
+    const loadNotes = async () => {
+      if (!activeUser) return;
+      try {
+        setLoadingNotes(true);
+        const notes = await getUserNotes(activeUser.uid, activeUser.role || 'student');
+        setNotesList(notes);
+      } catch (err) {
+        console.error("Failed to load notes for Doubt Solver:", err);
+      } finally {
+        setLoadingNotes(false);
+      }
+    };
+    loadNotes();
+  }, [activeUser]);
+
+  // Gemini API Key Management
+  const [geminiApiKey, setGeminiApiKey] = useState(() => {
+    const cached = localStorage.getItem('skillsync_gemini_api_key') || "";
+    if (cached.startsWith("AIzaSyCaBiUhrrycUwCjLYnoyL0WwqYA3qbeKdU") || cached.startsWith("sk-proj") || cached.startsWith("AIzaSyAcor3Xr3HMWyCBbEmkFV6TrR_xCof28NQ")) {
+      localStorage.removeItem('skillsync_gemini_api_key');
+      return "";
+    }
+    return cached;
+  });
+  const [showKeyConfig, setShowKeyConfig] = useState(false);
+  const [tempKey, setTempKey] = useState(geminiApiKey);
 
   // Scroll to bottom whenever messages list updates
   useEffect(() => {
@@ -35,10 +74,10 @@ const DoubtSolver = ({ activeUser }) => {
 
   // Clickable shortcut suggestions
   const suggestions = [
-    { label: "Explain quantum mechanics simply", text: "Explain quantum mechanics simply in 3 paragraphs with bullet points." },
+    { label: "What is Schrödinger's Equation?", text: "What is Schrödinger's Equation? Explain the terms simply and step-by-step." },
+    { label: "Explain quantum mechanics", text: "Explain quantum mechanics simply in 3 paragraphs with bullet points." },
     { label: "Help me debug React useEffect", text: "Explain how a React useEffect dependency array works and how to prevent infinite loops." },
-    { label: "List 5 high-speed revision tips", text: "What are the top 5 high-speed active recall revision tips for board exams?" },
-    { label: "Explain supply and demand laws", text: "Provide a simple macroeconomics explanation of the laws of supply and demand." }
+    { label: "Explain photosynthesis formula", text: "Explain the photosynthesis balanced formula and phases step-by-step." }
   ];
 
   // Custom text formatter to support markdown in chat bubbles
@@ -118,13 +157,17 @@ const DoubtSolver = ({ activeUser }) => {
     const query = messageText || input;
     if (!query.trim()) return;
 
-    // Append user message
+    const refNote = selectedNoteId ? notesList.find(n => n.id === selectedNoteId) : null;
+
+    // Append user message with active context values
     const userMsgId = 'msg_' + Date.now();
     const userMessage = {
       id: userMsgId,
       sender: 'user',
       text: query,
-      timestamp: new Date()
+      timestamp: new Date(),
+      subject: selectedSubject !== 'General Studies' ? selectedSubject : null,
+      noteName: refNote ? refNote.fileName : null
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -132,11 +175,17 @@ const DoubtSolver = ({ activeUser }) => {
     setLoading(true);
 
     try {
+      // Build rich query context by embedding the selected note contents
+      let richSubjectContext = selectedSubject;
+      if (refNote) {
+        richSubjectContext = `${selectedSubject} | Study Document Reference: "${refNote.fileName}" (Class: ${refNote.subject}). Document Core Content & AI Summary Context: ${refNote.summary || "General study overview"}`;
+      }
+
       // Connect to Gemini solver wrapper
       const aiReplyText = await solveAcademicDoubt(
         messages.filter(m => m.id !== 'welcome'), // Exclude welcome string context
         query,
-        "General Studies"
+        richSubjectContext
       );
 
       // Append AI reply
@@ -146,7 +195,9 @@ const DoubtSolver = ({ activeUser }) => {
           id: 'ai_' + Date.now(),
           sender: 'ai',
           text: aiReplyText,
-          timestamp: new Date()
+          timestamp: new Date(),
+          subject: selectedSubject !== 'General Studies' ? selectedSubject : null,
+          noteName: refNote ? refNote.fileName : null
         }
       ]);
     } catch (err) {
@@ -156,15 +207,163 @@ const DoubtSolver = ({ activeUser }) => {
     }
   };
 
+  // Save Dynamic API Key
+  const handleSaveKey = (e) => {
+    e.preventDefault();
+    const cleanKey = tempKey.trim();
+    if (!cleanKey) {
+      alert("Please enter a valid API Key.");
+      return;
+    }
+    localStorage.setItem('skillsync_gemini_api_key', cleanKey);
+    setGeminiApiKey(cleanKey);
+    setShowKeyConfig(false);
+    
+    if (cleanKey.startsWith("sk-")) {
+      alert("OpenAI API Key successfully updated! Live GPT model initialized.");
+    } else {
+      alert("Gemini API Key successfully updated! Live Gemini model initialized.");
+    }
+  };
+
+  // Clear Dynamic API Key
+  const handleClearKey = () => {
+    localStorage.removeItem('skillsync_gemini_api_key');
+    setGeminiApiKey("");
+    setTempKey("");
+    setShowKeyConfig(false);
+    alert("Key cleared! Defaulting back to high-fidelity Offline AI Simulator.");
+  };
+
   return (
-    <div className="max-w-4xl mx-auto flex flex-col h-[85vh] animate-fade-in pb-4">
+    <div className="max-w-4xl mx-auto flex flex-col h-[85vh] animate-fade-in pb-4 relative">
       
+      {/* DEVELOPER API KEY MODAL OVERLAY */}
+      {showKeyConfig && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[1000] flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-purple-500/30 rounded-2xl p-6 text-left shadow-[0_10px_40px_rgba(0,0,0,0.6)]">
+            <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+              <Key className="text-purple-400 w-5 h-5" />
+              Configure Cloud AI API Key
+            </h3>
+            
+            <p className="text-xs text-slate-400 leading-relaxed mb-4">
+              Enter your own personal <strong>Google Gemini</strong> or <strong>OpenAI ChatGPT</strong> API Key to connect directly to the active live cloud AI models. 
+              This allows the Doubt Solver to answer absolutely any academic question, derivation, or coding task dynamically!
+            </p>
+
+            <div className="bg-purple-950/20 border border-purple-500/20 p-3 rounded-lg text-[10px] text-purple-300 leading-relaxed mb-4 space-y-1.5">
+              <div>
+                🟢 <strong>Option A (OpenAI):</strong> Paste your OpenAI key starting with <code>sk-...</code>. Works extremely stably.
+              </div>
+              <div>
+                🔵 <strong>Option B (Gemini):</strong> Paste your Gemini key starting with <code>AIzaSy...</code> from <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="underline text-purple-400 hover:text-purple-300">Google AI Studio</a>.
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveKey}>
+              <div className="mb-4">
+                <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">Cloud API Key (Gemini or OpenAI)</label>
+                <input 
+                  type="password"
+                  value={tempKey}
+                  onChange={(e) => setTempKey(e.target.value)}
+                  placeholder="sk-... or AIzaSy..."
+                  className="w-full bg-zinc-950 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2.5 justify-end">
+                {geminiApiKey && (
+                  <button 
+                    type="button" 
+                    onClick={handleClearKey}
+                    className="px-3.5 py-2 bg-red-950/30 border border-red-500/20 text-red-400 hover:bg-red-900/10 text-xs rounded-xl transition-colors font-semibold"
+                  >
+                    Clear Key
+                  </button>
+                )}
+                <button 
+                  type="button" 
+                  onClick={() => { setShowKeyConfig(false); setTempKey(geminiApiKey); }}
+                  className="px-3.5 py-2 bg-transparent hover:bg-white/5 text-slate-400 text-xs rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs rounded-xl transition-colors"
+                >
+                  Save & Connect
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Title */}
-      <div className="pb-4 border-b border-white/5 dark:border-white/5 light:border-zinc-200/50 shrink-0">
-        <h1 className="text-3xl font-extrabold tracking-tight text-white dark:text-white light:text-indigo-950">AI Doubt Solver Chatbot</h1>
-        <p className="text-sm text-slate-400 dark:text-slate-400 light:text-zinc-500 mt-1">
-          Solve academic equations, coding syntax bugs, or literature reviews instantly with Gemini.
-        </p>
+      <div className="pb-4 border-b border-white/5 dark:border-white/5 light:border-zinc-200/50 shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 
+            onDoubleClick={() => setShowKeyConfig(true)}
+            title="Double-click to configure AI credentials"
+            className="text-3xl font-extrabold tracking-tight text-white dark:text-white light:text-indigo-950 cursor-default select-none hover:text-purple-400 transition-colors"
+          >
+            AI Doubt Solver Chatbot
+          </h1>
+          <p className="text-sm text-slate-400 dark:text-slate-400 light:text-zinc-500 mt-1">
+            Solve academic equations, coding syntax bugs, or literature reviews instantly.
+          </p>
+        </div>
+      </div>
+
+      {/* DYNAMIC SUBJECT & NOTE REFERENCE CONSOLE */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-3.5 rounded-2xl bg-white/5 dark:bg-white/3 light:bg-indigo-50/40 border border-white/8 dark:border-white/5 light:border-zinc-200/80 mt-4 shrink-0 shadow-sm">
+        
+        {/* Subject dropdown selector */}
+        <div className="flex flex-col gap-1.5 text-left">
+          <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-400 light:text-zinc-550 uppercase tracking-wider pl-0.5 flex items-center gap-1.5">
+            <BookOpen className="w-3.5 h-3.5 text-purple-450 dark:text-purple-400" />
+            <span>Select Focus Subject</span>
+          </label>
+          <select
+            value={selectedSubject}
+            onChange={(e) => setSelectedSubject(e.target.value)}
+            className="w-full bg-space-950 dark:bg-space-950 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 rounded-xl px-3 py-2 text-xs text-white dark:text-white light:text-indigo-950 cursor-pointer shadow-inner transition-colors"
+          >
+            {subjectsList.map((sub) => (
+              <option key={sub} value={sub} className="bg-space-950 text-white dark:text-white light:text-indigo-950 dark:bg-space-950 light:bg-white">
+                {sub}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Note dropdown selector */}
+        <div className="flex flex-col gap-1.5 text-left">
+          <label className="text-[9px] font-extrabold text-slate-455 dark:text-slate-400 light:text-zinc-555 uppercase tracking-wider pl-0.5 flex items-center gap-1.5">
+            <FileText className="w-3.5 h-3.5 text-pink-450 dark:text-pink-400 animate-pulse" />
+            <span>Reference Study Note</span>
+          </label>
+          <select
+            value={selectedNoteId}
+            onChange={(e) => setSelectedNoteId(e.target.value)}
+            disabled={loadingNotes}
+            className="w-full bg-space-950 dark:bg-space-950 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 rounded-xl px-3 py-2 text-xs text-white dark:text-white light:text-indigo-950 cursor-pointer shadow-inner disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <option value="" className="bg-space-950 text-white dark:text-white light:text-indigo-950 dark:bg-space-950 light:bg-white">
+              {loadingNotes ? '⏳ Loading classroom notes...' : '🚫 No specific note reference'}
+            </option>
+            {notesList.map((note) => (
+              <option key={note.id} value={note.id} className="bg-space-950 text-white dark:text-white light:text-indigo-950 dark:bg-space-950 light:bg-white">
+                {note.fileName} ({note.subject})
+              </option>
+            ))}
+          </select>
+        </div>
+
       </div>
 
       {/* SUGGESTIONS PANEL */}
@@ -175,7 +374,7 @@ const DoubtSolver = ({ activeUser }) => {
             onClick={() => handleSend(sug.text)}
             className="px-3.5 py-1.5 rounded-full border border-white/10 dark:border-white/5 light:border-zinc-200/80 bg-white/5 dark:bg-white/5 light:bg-white hover:bg-purple-600/10 hover:border-purple-500/40 hover:text-purple-400 text-[10px] font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-600 transition-all shrink-0 active:scale-95 flex items-center gap-1 shadow-sm"
           >
-            <HelpCircle className="w-3.5 h-3.5" />
+            <HelpCircle className="w-3.5 h-3.5 animate-pulse" />
             {sug.label}
           </button>
         ))}
@@ -208,7 +407,25 @@ const DoubtSolver = ({ activeUser }) => {
                     ? 'bg-purple-600/20 border-purple-500/30 text-white rounded-tr-none shadow-[0_0_15px_rgba(139,92,246,0.1)]'
                     : 'glass-panel text-slate-300 dark:text-slate-300 light:text-zinc-800 rounded-tl-none border-white/8 dark:border-white/5 light:border-zinc-200/80'
                 }`}>
-                  <div className="space-y-1">
+                  {/* Context Badges */}
+                  {(msg.subject || msg.noteName) && (
+                    <div className="flex flex-wrap gap-1.5 mb-2 pl-0.5">
+                      {msg.subject && (
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/10 border border-purple-500/25 text-purple-400 flex items-center gap-1 shadow-sm">
+                          <BookOpen className="w-2.5 h-2.5" />
+                          {msg.subject}
+                        </span>
+                      )}
+                      {msg.noteName && (
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-pink-500/10 border border-pink-500/25 text-pink-400 flex items-center gap-1 shadow-sm">
+                          <FileText className="w-2.5 h-2.5" />
+                          {msg.noteName}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-1 text-left">
                     {formatMessageText(msg.text)}
                   </div>
                   <span className="text-[8px] text-slate-500 block text-right mt-2 font-medium">
@@ -249,7 +466,7 @@ const DoubtSolver = ({ activeUser }) => {
           disabled={loading}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask your AI study doubt (e.g., 'What is F = ma?')"
+          placeholder="Ask your AI study doubt (e.g. 'What is Schrödinger\'s Equation?')"
           className="flex-1 bg-transparent px-3 text-xs focus:outline-none text-white dark:text-white light:text-indigo-950"
         />
 

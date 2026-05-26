@@ -1,47 +1,105 @@
 /**
- * SkillSync AI - Google Gemini Generative AI Service
+ * SkillSync AI - Hybrid Generative AI Service (Google Gemini + OpenAI ChatGPT)
  * 
- * This service connects to the Google Gemini API (gemini-1.5-flash) in the cloud.
- * It is fully commented and features:
- * 1. Live Gemini Mode: Connects to your active API key and generates real-time results.
- * 2. Intelligent Simulation Fallback: Generates high-fidelity educational responses locally 
- *    in case of API key issues or offline environments.
+ * This service connects to either Google Gemini or OpenAI in the cloud.
+ * It features:
+ * 1. Hybrid Routing: Automatically routes key starting with "sk-" to OpenAI, 
+ *    and keys starting with "AIzaSy" to Google Gemini!
+ * 2. Auto Model Fallback: Cycles through gemini-1.5-flash, gemini-1.5-pro, and gemini-pro 
+ *    if a model is not found or restricted in your region, preventing 404 errors.
+ * 3. Stateful Offline Simulator: High-fidelity study assistant for science/coding.
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Initialize the Gemini AI SDK
-const initGemini = () => {
-  try {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey || apiKey === "YOUR_GEMINI_API_KEY_HERE" || apiKey.includes("PLACEHOLDER")) {
-      console.warn("Gemini API key is using placeholder. Defaulting to Local AI Simulator.");
-      return null;
+// ----------------------------------------------------
+// MODEL FALLBACK ENGINE (FOR GEMINI)
+// ----------------------------------------------------
+// Cycles through available model variations to handle regional or API-version blocks dynamically.
+const generateWithModelFallback = async (apiKey, prompt, forceJson = false) => {
+  const models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+  const genAI = new GoogleGenerativeAI(apiKey);
+  
+  let lastError = null;
+  for (const modelName of models) {
+    try {
+      const config = forceJson ? { model: modelName, generationConfig: { responseMimeType: "application/json" } } : { model: modelName };
+      const model = genAI.getGenerativeModel(config);
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      return response.text();
+    } catch (e) {
+      console.warn(`Model ${modelName} failed or is not available. Trying next fallback... Error details:`, e);
+      lastError = e;
+      
+      // Stop looping early if the key itself is explicitly invalid or blocked (not a model 404)
+      const msg = (e.message || String(e)).toLowerCase();
+      if (msg.includes("api key not valid") || msg.includes("api_key_invalid") || msg.includes("blocked") || msg.includes("quota")) {
+        break;
+      }
     }
-    return new GoogleGenerativeAI(apiKey);
-  } catch (e) {
-    console.error("Failed to initialize Gemini AI client:", e);
-    return null;
   }
+  throw lastError;
 };
-
-const genAI = initGemini();
 
 // ==========================================
 // A. AI NOTE SUMMARIZER
 // ==========================================
 
-/**
- * Generates an academic summary and key takeaways from uploaded notes
- */
 export const generateNoteSummary = async (fileName, subject, extractedText = "") => {
   const defaultText = extractedText || `This is a study note uploaded for the subject ${subject} named "${fileName}".`;
+  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
   
-  if (genAI) {
+  if (apiKey && apiKey !== "YOUR_GEMINI_API_KEY_HERE" && !apiKey.includes("PLACEHOLDER") && apiKey.trim() !== "") {
+    const cleanKey = apiKey.trim();
+    
+    // --- ROUTE A: OPENAI COMPATIBILITY FOR SUMMARIES ---
+    if (cleanKey.startsWith("sk-")) {
+      try {
+        const prompt = `
+          You are an expert academic research assistant. 
+          Analyze the following student study material and generate a detailed academic summary:
+          
+          Subject: ${subject}
+          Document Title: ${fileName}
+          Document Text/Content: ${defaultText}
+          
+          Please format your response EXACTLY as a structured output with two parts:
+          1. A comprehensive, beautifully formatted Markdown summary (using headers, bold terms, bullet points).
+          2. A section of exactly 4-5 major "Key Takeaways" or formula sheets that are critical for exams. Separated by | character or listed as a JSON array in your prompt.
+          
+          Format the entire response like this:
+          ---SUMMARY---
+          (Place the detailed markdown summary here)
+          ---TAKEAWAYS---
+          * Takeaway 1
+          * Takeaway 2
+          * Takeaway 3
+        `;
+        
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${cleanKey}`
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [{ role: "user", content: prompt }]
+          })
+        });
+        
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+        const data = await response.json();
+        return parseSummaryResponse(data.choices[0].message.content);
+      } catch (error) {
+        console.error("OpenAI Summary Error, loading simulated response: ", error);
+        return generateSimulatedSummary(fileName, subject);
+      }
+    }
+    
+    // --- ROUTE B: GEMINI FOR SUMMARIES ---
     try {
-      // Use gemini-1.5-flash for fast and cost-effective text generation
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      
       const prompt = `
         You are an expert academic research assistant. 
         Analyze the following student study material and generate a detailed academic summary:
@@ -63,10 +121,7 @@ export const generateNoteSummary = async (fileName, subject, extractedText = "")
         * Takeaway 3
       `;
       
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
-      
+      const text = await generateWithModelFallback(cleanKey, prompt, false);
       return parseSummaryResponse(text);
     } catch (error) {
       console.error("Gemini Summary Error, loading simulated response: ", error);
@@ -77,14 +132,12 @@ export const generateNoteSummary = async (fileName, subject, extractedText = "")
   }
 };
 
-// Parser for Gemini's summary output
 const parseSummaryResponse = (text) => {
   try {
     const parts = text.split('---TAKEAWAYS---');
     let summaryPart = parts[0].replace('---SUMMARY---', '').trim();
     let takeawaysPart = parts[1] ? parts[1].trim() : '';
     
-    // Parse takeaways list
     const takeaways = takeawaysPart
       .split('\n')
       .map(line => line.replace(/^[\s-*+]+/, '').trim())
@@ -110,66 +163,87 @@ const parseSummaryResponse = (text) => {
 // B. AI QUIZ GENERATOR
 // ==========================================
 
-/**
- * Generates an interactive test containing MCQs, True/False, and Short questions
- */
 export const generateQuizFromNote = async (fileName, subject, quizType, noteContent = "") => {
-  if (genAI) {
+  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
+  
+  if (apiKey && apiKey !== "YOUR_GEMINI_API_KEY_HERE" && !apiKey.includes("PLACEHOLDER") && apiKey.trim() !== "") {
+    const cleanKey = apiKey.trim();
+    const prompt = `
+      You are a high school and college professor. Create a study quiz based on this student note:
+      
+      Subject: ${subject}
+      Document: ${fileName}
+      Document Text: ${noteContent || "General academic overview"}
+      Quiz Category Type: ${quizType} (e.g. "mcq", "true_false", or "short_answer")
+      
+      Generate exactly 5 questions of this type. 
+      You MUST return the output in a strict JSON array format.
+      
+      For "mcq" type:
+      [
+        {
+          "question": "The question content here?",
+          "options": ["Option A", "Option B", "Option C", "Option D"],
+          "answer": "Option B",
+          "explanation": "Detailed explanation of why Option B is correct."
+        }
+      ]
+      
+      For "true_false" type:
+      [
+        {
+          "question": "Statement of facts?",
+          "options": ["True", "False"],
+          "answer": "True",
+          "explanation": "Detailed explanation of why this statement is True."
+        }
+      ]
+      
+      For "short_answer" type:
+      [
+        {
+          "question": "What is theory X?",
+          "options": [],
+          "answer": "A short answer key containing core terms that should be matched.",
+          "explanation": "Grading rubric and detailed explanation of theory X."
+        }
+      ]
+      
+      Ensure questions are intellectually stimulating and match the academic level of the subject.
+    `;
+    
+    // --- ROUTE A: OPENAI QUIZ ---
+    if (cleanKey.startsWith("sk-")) {
+      try {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${cleanKey}`
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            response_format: { type: "json_object" },
+            messages: [{ role: "user", content: prompt + " Please output pure raw JSON only. Do not wrap in markdown tags." }]
+          })
+        });
+        
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+        const data = await response.json();
+        
+        // OpenAI output parser supporting direct JSON completion formats
+        const content = data.choices[0].message.content;
+        const parsed = JSON.parse(content);
+        return Array.isArray(parsed) ? parsed : (parsed.questions || Object.values(parsed)[0]);
+      } catch (error) {
+        console.error("OpenAI Quiz Error, loading simulated quiz: ", error);
+        return generateSimulatedQuiz(subject, quizType);
+      }
+    }
+    
+    // --- ROUTE B: GEMINI QUIZ ---
     try {
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-flash",
-        // Force output to be structured JSON
-        generationConfig: { responseMimeType: "application/json" }
-      });
-      
-      const prompt = `
-        You are a high school and college professor. Create a study quiz based on this student note:
-        
-        Subject: ${subject}
-        Document: ${fileName}
-        Document Text: ${noteContent || "General academic overview"}
-        Quiz Category Type: ${quizType} (e.g. "mcq", "true_false", or "short_answer")
-        
-        Generate exactly 5 questions of this type. 
-        You MUST return the output in a strict JSON array format.
-        
-        For "mcq" type:
-        [
-          {
-            "question": "The question content here?",
-            "options": ["Option A", "Option B", "Option C", "Option D"],
-            "answer": "Option B",
-            "explanation": "Detailed explanation of why Option B is correct."
-          }
-        ]
-        
-        For "true_false" type:
-        [
-          {
-            "question": "Statement of facts?",
-            "options": ["True", "False"],
-            "answer": "True",
-            "explanation": "Detailed explanation of why this statement is True."
-          }
-        ]
-        
-        For "short_answer" type:
-        [
-          {
-            "question": "What is theory X?",
-            "options": [],
-            "answer": "A short answer key containing core terms that should be matched.",
-            "explanation": "Grading rubric and detailed explanation of theory X."
-          }
-        ]
-        
-        Ensure questions are intellectually stimulating and match the academic level of the subject.
-      `;
-      
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const jsonText = response.text();
-      
+      const jsonText = await generateWithModelFallback(cleanKey, prompt, true);
       const parsedQuestions = JSON.parse(jsonText);
       return parsedQuestions;
     } catch (error) {
@@ -185,23 +259,79 @@ export const generateQuizFromNote = async (fileName, subject, quizType, noteCont
 // C. AI DOUBT SOLVER CHATBOT
 // ==========================================
 
-/**
- * Responds to student doubt-solving prompt based on chat history
- */
 export const solveAcademicDoubt = async (chatHistory, newQuestion, subjectContext = "General") => {
-  if (genAI) {
-    try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      
+  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
+  
+  if (apiKey && apiKey !== "YOUR_GEMINI_API_KEY_HERE" && !apiKey.includes("PLACEHOLDER") && apiKey.trim() !== "") {
+    const cleanKey = apiKey.trim();
+
+    // Define a robust 3.5-second connection timeout racer
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Cloud AI Connection Timeout")), 3500)
+    );
+
+    const runCloudQuery = async () => {
+      // --- ROUTE A: OPENAI CHATGPT KEY (sk-...) ---
+      if (cleanKey.startsWith("sk-")) {
+        const openAiMessages = [
+          { 
+            role: "system", 
+            content: `You are "GPT Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
+Always start your responses in a welcoming, student-friendly tone (e.g., "Hi student! How are you doing today? Let's tackle this query together!").
+Provide a brief, high-impact explanation of the core concept first. 
+Always end your response by actively asking if the student wants to learn more, using exactly or similar to:
+"Would you further want me to explain this in more detail, or guide you through a specific sub-topic?"`
+          }
+        ];
+
+        // Convert chat history
+        chatHistory.forEach(msg => {
+          openAiMessages.push({
+            role: msg.sender === 'user' ? 'user' : 'assistant',
+            content: msg.text
+          });
+        });
+
+        // Add new question
+        openAiMessages.push({
+          role: "user",
+          content: newQuestion
+        });
+
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${cleanKey}`
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: openAiMessages
+          })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.error?.message || `HTTP error ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.choices[0].message.content;
+      }
+
+      // --- ROUTE B: GOOGLE GEMINI KEY (AIzaSy...) ---
       // Format chat history into a readable chat log for Gemini
       const formattedHistory = chatHistory.map(msg => {
         return `${msg.sender === 'user' ? 'Student' : 'AI Tutor'}: ${msg.text}`;
       }).join('\n');
       
       const prompt = `
-        You are "SkillSync AI Mentor", a friendly, highly intelligent, and motivating study tutor.
-        Help the student solve their doubts. Ensure your answers are clear, correct, and structured with Markdown. 
-        If they ask for code, provide clean code blocks with comments. If they ask for math, explain step-by-step.
+        You are "Gemini Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
+        Always start your responses in a welcoming, student-friendly tone (e.g., "Hi student! How are you doing today? Let's tackle this query together!").
+        
+        Provide a brief, high-impact explanation of the core concept first. 
+        Always end your response by actively asking if the student wants to learn more, using exactly or similar to:
+        "Would you further want me to explain this in more detail, or guide you through a specific sub-topic?"
         
         Subject Context: ${subjectContext}
         
@@ -210,18 +340,21 @@ export const solveAcademicDoubt = async (chatHistory, newQuestion, subjectContex
         
         New Student Doubt: ${newQuestion}
         
-        Response (as AI Tutor):
+        Response (as Gemini Student Mentor):
       `;
       
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      return response.text();
+      return await generateWithModelFallback(cleanKey, prompt, false);
+    };
+
+    try {
+      // Race the cloud fetch against the 3.5s timeout promise
+      return await Promise.race([runCloudQuery(), timeoutPromise]);
     } catch (error) {
-      console.error("Gemini Chat Error: ", error);
-      return simulateChatReply(newQuestion, subjectContext);
+      console.error("AI Cloud Query failed or timed out, failing over to simulator:", error);
+      return simulateChatReply(chatHistory, newQuestion, subjectContext);
     }
   } else {
-    return simulateChatReply(newQuestion, subjectContext);
+    return simulateChatReply(chatHistory, newQuestion, subjectContext);
   }
 };
 
@@ -229,46 +362,64 @@ export const solveAcademicDoubt = async (chatHistory, newQuestion, subjectContex
 // D. AI ROADMAP GENERATOR
 // ==========================================
 
-/**
- * Generates a complete learning curriculum based on a career/academic goal
- */
 export const generateStudyRoadmap = async (goal, timeAvailable) => {
-  if (genAI) {
+  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
+  
+  if (apiKey && apiKey !== "YOUR_GEMINI_API_KEY_HERE" && !apiKey.includes("PLACEHOLDER") && apiKey.trim() !== "") {
+    const cleanKey = apiKey.trim();
+    const prompt = `
+      You are a professional educational curriculum designer and career advisor.
+      Generate a detailed week-by-week study roadmap based on:
+      
+      Goal: ${goal}
+      Time Available: ${timeAvailable} (e.g., "6 months", "30 days")
+      
+      Provide a chronological schedule. Return the output in strict JSON format like this:
+      {
+        "goal": "${goal}",
+        "duration": "${timeAvailable}",
+        "targetAudience": "Beginner to Intermediate",
+        "weeks": [
+          {
+            "week": "Week 1-2",
+            "topic": "Fundamentals of Goal X",
+            "tasks": ["Read articles on core theory", "Complete lab exercises", "Build simple practice sandbox"],
+            "resources": "Google Scholar, YouTube crash courses, free coding resources"
+          }
+        ]
+      }
+      
+      Limit your weekly breakdown to exactly 4-6 chronological milestone periods to keep it readable.
+    `;
+    
+    // --- ROUTE A: OPENAI ROADMAP ---
+    if (cleanKey.startsWith("sk-")) {
+      try {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${cleanKey}`
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            response_format: { type: "json_object" },
+            messages: [{ role: "user", content: prompt + " Output pure raw JSON only. Do not wrap in markdown tags." }]
+          })
+        });
+        
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+        const data = await response.json();
+        return JSON.parse(data.choices[0].message.content);
+      } catch (error) {
+        console.error("OpenAI Roadmap Error: ", error);
+        return generateSimulatedRoadmap(goal, timeAvailable);
+      }
+    }
+    
+    // --- ROUTE B: GEMINI ROADMAP ---
     try {
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-flash",
-        generationConfig: { responseMimeType: "application/json" }
-      });
-      
-      const prompt = `
-        You are a professional educational curriculum designer and career advisor.
-        Generate a detailed week-by-week study roadmap based on:
-        
-        Goal: ${goal}
-        Time Available: ${timeAvailable} (e.g., "6 months", "30 days")
-        
-        Provide a chronological schedule. Return the output in strict JSON format like this:
-        {
-          "goal": "${goal}",
-          "duration": "${timeAvailable}",
-          "targetAudience": "Beginner to Intermediate",
-          "weeks": [
-            {
-              "week": "Week 1-2",
-              "topic": "Fundamentals of Goal X",
-              "tasks": ["Read articles on core theory", "Complete lab exercises", "Build simple practice sandbox"],
-              "resources": "Google Scholar, YouTube crash courses, free coding resources"
-            }
-          ]
-        }
-        
-        Limit your weekly breakdown to exactly 4-6 chronological milestone periods to keep it readable.
-      `;
-      
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const jsonText = response.text();
-      
+      const jsonText = await generateWithModelFallback(cleanKey, prompt, true);
       return JSON.parse(jsonText);
     } catch (error) {
       console.error("Gemini Roadmap Error: ", error);
@@ -368,59 +519,480 @@ const generateSimulatedQuiz = (subject, quizType) => {
     ];
   }
 
-  // DEFAULT MCQ
   return [
     {
       question: `Which of the following is considered a core foundational pillar of ${subject}?`,
       options: ["Theoretical Models", "Random Guessing", "Rote Memorization", "Passive Reading"],
       answer: "Theoretical Models",
       explanation: `Modern ${subject} relies heavily on establishing rigorous mathematical or scientific models to represent real occurrences.`
-    },
-    {
-      question: "What is the most effective method to prepare for high-stakes examinations?",
-      options: ["Reading notes repeatedly", "Highlighting full chapters", "Taking practice quizzes & spacing reviews", "Cramming the night before"],
-      answer: "Taking practice quizzes & spacing reviews",
-      explanation: "Practice testing and spaced repetition are clinically proven to be the most powerful methods for long-term memory retrieval."
-    },
-    {
-      question: `How do practitioners of ${subject} validate a newly proposed scientific hypothesis?`,
-      options: ["By posting on social media", "Through empirical peer-reviewed testing", "By writing a long essay", "By trusting intuition"],
-      answer: "Through empirical peer-reviewed testing",
-      explanation: "Peer review and empirical replication are the gold standards of scientific validity in academics."
-    },
-    {
-      question: "What does the 'spacing effect' refer to in cognitive psychology?",
-      options: ["Staring into space while studying", "Spreading study sessions out over time", "Putting spaces between paragraphs", "Studying in a quiet open room"],
-      answer: "Spreading study sessions out over time",
-      explanation: "Spreading reviews over several days allows the brain to forget slightly and reconstruct the memory, making it much stronger."
-    },
-    {
-      question: `What is the ultimate goal of implementing AI-driven tutors like SkillSync in ${subject} studies?`,
-      options: ["To replace human teachers", "To write essays for students", "To customize the learning path and explain doubts instantly", "To automate grading solely"],
-      answer: "To customize the learning path and explain doubts instantly",
-      explanation: "SkillSync AI aims to provide personalized guidance, resolving doubts at the student's own speed, 24/7."
     }
   ];
 };
 
-// 3. Simulated Chat Responder
-const simulateChatReply = (question, subject) => {
+// 3. Stateful simulated chat conversation solver
+const simulateChatReply = (chatHistory, question, subject) => {
   const q = question.toLowerCase();
   
-  if (q.includes("hello") || q.includes("hi ") || q.includes("hey")) {
-    return `### Hello! Welcome to SkillSync AI doubt solver! 👋\n\nI am your dedicated **${subject} Study Mentor**. How can I assist you in your learning journey today?\n\nYou can ask me: \n* Complex subject equations or theories.\n* Code debugging or structural programming inquiries.\n* High-efficiency revision strategies!`;
-  }
-  
-  if (q.includes("code") || q.includes("program") || q.includes("react") || q.includes("function") || q.includes("javascript")) {
-    return `### 💻 SkillSync AI Coding Assistant\n\nHere is a clean explanation and code structure to help you solve your coding doubt!\n\n#### Core Concept:\nIn modern programming (like React or JavaScript), we utilize **functional components** and **state management hooks** to construct interactive systems.\n\nHere is a clean React counter code example showcasing efficient state updates:\n\n\`\`\`javascript\nimport React, { useState } from 'react';\n\nfunction ElegantCounter() {\n  // 1. Declare a state variable called 'count'\n  const [count, setCount] = useState(0);\n\n  return (\n    <div className="p-6 bg-zinc-900 border border-purple-500/20 rounded-xl">\n      <p className="text-white text-lg font-bold">Count: {count}</p>\n      {/* Use functional state update to prevent race conditions */}\n      <button \n        onClick={() => setCount(prev => prev + 1)}\n        className="px-4 py-2 mt-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"\n      >\n        Increment Count\n      </button>\n    </div>\n  );\n}\n\nexport default ElegantCounter;\n\`\`\`\n\n#### Key Takeaways:\n1. Always utilize the functional updater form \`setCount(prev => prev + 1)\` when the new state relies on previous state to prevent stale state variables.\n2. Ensure all event handlers are cleanly declared. Let me know if you need help debugging a specific error!`;
+  // Find past bot responses to determine ongoing topic states!
+  let lastTopic = "";
+  for (let i = chatHistory.length - 1; i >= 0; i--) {
+    const msg = chatHistory[i];
+    if (msg.sender === 'ai') {
+      const txt = msg.text.toLowerCase();
+      if (txt.includes("photosynthesis")) {
+        lastTopic = "photosynthesis";
+        break;
+      }
+      if (txt.includes("schrödinger") || txt.includes("schrodinger")) {
+        lastTopic = "schrodinger";
+        break;
+      }
+      if (txt.includes("newton")) {
+        lastTopic = "newton";
+        break;
+      }
+    }
   }
 
-  if (q.includes("study") || q.includes("exam") || q.includes("learn") || q.includes("memorize") || q.includes("focus")) {
-    return `### 🧠 High-Efficiency Study Advice\n\nTo master your **${subject}** exams, research recommends implementing the **Feynman Technique** and **Spaced Repetition**:\n\n#### 1. The Feynman Technique\n* **Step 1**: Pick a complex concept you are struggling with.\n* **Step 2**: Write down an explanation of that concept as if you were teaching it to a **10-year-old child** (use simple words, no jargon).\n* **Step 3**: Identify gaps in your explanation, return to your notes, and fill in those gaps.\n\n#### 2. Spaced Study Milestones:\n| Review Session | Timing | Objective |\n| :--- | :--- | :--- |\n| Session 1 | 24 Hours later | Core active recall (Quiz) |\n| Session 2 | 3 Days later | Draw a blank visual mindmap |\n| Session 3 | 1 Week later | Explain the doubt to an AI Mentor |`;
+  // --- STATE A: USER GREETINGS ---
+  if (q.includes("hello") || q.includes("hi ") || q.includes("hey") || q.includes("how are you")) {
+    return `Hi student! How are you doing today? 👋
+
+I am **Gemini Student Mentor**, your dedicated study guide. How can I assist you with your academic goals today? 
+
+Feel free to ask me about:
+* **Photosynthesis** or **Schrödinger's Equation**
+* Complex mathematical formulas and physics equations
+* Code reviews and C, Python, or Java programming tutorials!`;
   }
 
-  // DEFAULT RESPONSE
-  return `### 💡 Study Mentor Resolution\n\nHere is a comprehensive breakdown to resolve your academic query regarding **"${question}"**:\n\n#### Conceptual Breakdown:\n1. **Core Premise**: Every problem in academic coursework can be broken down into structural variables and logical rules. By isolating what you *know* from what you are *solving for*, the answer becomes clear.\n2. **Theoretical Connection**: In **${subject}**, this directly relates to systemic research models and peer-reviewed methodologies.\n\n#### Step-by-Step Explanation:\n* **Step A**: Analyze the core terms of the question.\n* **Step B**: Structure your response beginning with the general definition, followed by specific formulas or historical dates, and conclude with practical correlations.\n* **Step C**: Test yourself using the **SkillSync AI Quiz Generator** to cement this concept permanently in your long-term memory!\n\n*Does this clear up your doubt? Please let me know if you want me to expand on any specific sub-equation or definition!*`;
+  // --- STATE B: INTERACTION CONFIRMATIONS (e.g. Yes/No to expanding on topics) ---
+  if (q === "yes" || q === "sure" || q.includes("explain more") || q.includes("want to know") || q.includes("yes please")) {
+    if (lastTopic === "photosynthesis") {
+      return `Hi student! Let's explore **Photosynthesis** in deep detail! 🌿
+
+#### **The Chloroplast Structures & Light Harvesting:**
+Photosynthesis occurs inside specialized organelles called **chloroplasts**. Within these, green chlorophyll pigments are packed inside flat disk structures called **thylakoids**. 
+
+#### **The Complete Molecular Stages:**
+* **1. Light Reactions (Thylakoids)**: Sunlight energy splits water molecules ($H_2O$), releasing Oxygen gas ($O_2$) and charging energy carrier compounds (**ATP** and **NADPH**).
+* **2. The Calvin Cycle (Stroma)**: A light-independent carbon-fixation reaction. The plant uses the enzyme **RuBisCO** to capture Carbon Dioxide ($CO_2$) and utilize the energy from ATP/NADPH to assemble rich **Glucose sugars ($C_6H_{12}O_6$)**.
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+    }
+    
+    if (lastTopic === "schrodinger") {
+      return `Hi student! Let's dive deeper into **Schrödinger's Equation**! 🌌
+
+#### **Time-Dependent vs Time-Independent Equations:**
+Schrödinger actually formulated two equations:
+
+* **1. Time-Dependent**: Governs the evolution of a particle's wave function over time.
+  $$i\hbar\frac{\partial}{\partial t}\Psi(\mathbf{r}, t) = \hat{H}\Psi(\mathbf{r}, t)$$
+* **2. Time-Independent**: Used when the potential energy of a particle doesn't depend on time (static boundary states like electrons trapped inside atoms).
+  $$\hat{H}\psi(\mathbf{r}) = E\psi(\mathbf{r})$$
+  *(Here, $E$ is a constant representing the precise energy level of the particle).*
+
+#### **The Wave Function Collapse:**
+In quantum mechanics, a wave function represents a range of multiple possibilities (**superposition**). When an scientist performs a physical measurement, the wave function instantly "collapses" into a single definite point of location!
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+    }
+
+    if (lastTopic === "newton") {
+      return `Hi student! Let's expand on **Newton's Laws** in deep detail! 🍎
+
+#### **Focusing on the 2nd Law ($F=ma$):**
+This equation proves that Force ($F$) is the rate of change of momentum. If you apply the same force to objects with different masses, the lighter object accelerates faster.
+* Force is measured in **Newtons (N)** ($1\text{ N} = 1\text{ kg}\cdot\text{m/s}^2$).
+
+#### **Action & Reaction Deep Dive:**
+Many students mistake the 3rd law. The action and reaction forces **never cancel each other out** because they act on **different objects**! For example, when a rocket launches, the engines push gas downwards (action), and the gas pushes the rocket upwards (reaction).
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+    }
+
+    return `Hi student! I'm glad you're interested. Let me know what academic subject or equation you would like to explore next! Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+  }
+
+  if (q === "no" || q === "no thanks" || q === "stop") {
+    return `No problem, student! Let me know whenever you're ready to tackle another doubt. Have a great study session! 📚`;
+  }
+
+  // --- STATE C: PHOTOSYNTHESIS (Brief vs Detailed) ---
+  if (q.includes("photosynthesis") || q.includes("calvin cycle")) {
+    const isBrief = q.includes("brief") || q.includes("short") || q.includes("summary") || q.includes("summarize");
+    
+    if (isBrief) {
+      return `Hi student! How are you doing today? Let's take a quick, brief look at **Photosynthesis**! 🌿
+
+**Photosynthesis** is the process where green plants convert sunlight, carbon dioxide, and water into chemical energy (glucose) and release oxygen as a byproduct. 
+
+* **The Quick Formula**: $6\text{CO}_2 + 6\text{H}_2\text{O} \longrightarrow \text{C}_6\text{H}_{12}\text{O}_6 + 6\text{O}_2$
+* **The Main Takeaway**: Sunlight splits water to create energy, which is used to combine carbon dioxide into glucose food.
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+    }
+
+    return `Hi student! How are you doing today? Let's explain **Photosynthesis**! 🌿
+
+**Photosynthesis** is the chemical process used by plants to convert light energy from the sun into glucose food, releasing oxygen.
+
+#### **The Balanced Equation:**
+$$6\text{CO}_2 + 6\text{H}_2\text{O} + \text{sunlight} \longrightarrow \text{C}_6\text{H}_{12}\text{O}_6 + 6\text{O}_2$$
+
+#### **The Chemical Phases:**
+* **Light-Dependent Phase**: Sunlight is absorbed by chlorophyll, splitting water to release oxygen and generating energy (ATP).
+* **Calvin Cycle Phase**: The plant captures carbon dioxide and uses ATP energy to manufacture glucose.
+
+*Do you want to know about the enzymes involved (like RuBisCO) and the chloroplast structure?*
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+  }
+
+  // --- STATE D: SCHRÖDINGER'S EQUATION (Brief vs Detailed) ---
+  if (q.includes("schrodinger") || q.includes("schrödinger")) {
+    const isBrief = q.includes("brief") || q.includes("short") || q.includes("summary") || q.includes("summarize");
+    
+    if (isBrief) {
+      return `Hi student! How are you doing today? Let's look at **Schrödinger's Equation** in brief! 🌌
+
+The **Schrödinger Equation** is the fundamental equation of quantum mechanics. It calculates how wave-like quantum particles (like electrons) behave over time:
+
+#### **i ℏ (∂/∂t) Ψ = Ĥ Ψ**
+
+Instead of predicting an exact path, it calculates a **probability wave** that describes the statistical likelihood of where a particle exists upon measurement.
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+    }
+
+    return `Hi student! How are you doing today? Let's look at **Schrödinger's Equation**! 🌌
+
+The **Schrödinger Equation** describes how the quantum state of a subatomic particle (like an electron) evolves over time:
+
+#### **i ℏ (∂/∂t) Ψ(r, t) = Ĥ Ψ(r, t)**
+
+#### **Term Guide:**
+* **Ψ** (Wave Function): Calculates the wave of probability.
+* **Ĥ** (Hamiltonian): The total energy operator (kinetic + potential).
+* **ℏ** (hbar): The reduced Planck's constant.
+
+*Do you want to know about the differences between the Time-Dependent and Time-Independent equations?*
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+  }
+
+  // --- STATE E: NEWTON'S LAWS (Brief vs Detailed) ---
+  if (q.includes("newton") || q.includes("force = mass") || q.includes("f = ma")) {
+    const isBrief = q.includes("brief") || q.includes("short") || q.includes("summary") || q.includes("summarize");
+    
+    if (isBrief) {
+      return `Hi student! How are you doing today? Let's review **Newton's Laws** in brief! 🍎
+
+* **1st Law**: An object stays at rest or in constant motion unless pushed (Inertia).
+* **2nd Law ($F=ma$)**: Force equals Mass multiplied by Acceleration.
+* **3rd Law**: Every action has an equal and opposite reaction force.
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+    }
+
+    return `Hi student! How are you doing today? Let's explore **Newton's Laws of Motion**! 🍎
+
+Formulated in 1687, Sir Isaac Newton's three laws describe classical physical dynamics:
+
+* **1. Inertia**: Objects resist changes in their movement state.
+* **2. Dynamics ($F=ma$)**: Acceleration of mass requires net proportional force.
+* **3. Forces Interaction**: Every action force triggers an equal and opposite reaction force.
+
+*Do you want to know how force is measured in Newtons and see a practice calculation?*
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+  }
+
+  // --- STATE F: PROGRAMMING & CODE GENERATOR (C, Python, Java, JS, C++) ---
+  if (q.includes("code") || q.includes("program") || q.includes("function") || q.includes("write a") || q.includes("print a") || q.includes("javascript") || q.includes("python") || q.includes("java") || q.includes("c++") || q.includes("c ") || q.includes("develop") || q.includes("fibonacci")) {
+    
+    // Determine language
+    let lang = "javascript";
+    let langDisplay = "JavaScript";
+    const isC = /\bc\b/i.test(q) || q.includes("c program") || q.includes("program in c") || q.includes("c code") || q.includes("c-program") || q.includes("language c");
+    const isCpp = q.includes("c++") || q.includes("cpp");
+    const isPython = q.includes("python") || q.includes("py ");
+    const isJava = q.includes("java") && !q.includes("javascript");
+    
+    if (isPython) { lang = "python"; langDisplay = "Python"; }
+    else if (isCpp) { lang = "cpp"; langDisplay = "C++"; }
+    else if (isJava) { lang = "java"; langDisplay = "Java"; }
+    else if (isC) { lang = "c"; langDisplay = "C Programming"; }
+    else if (q.includes("html")) { lang = "html"; langDisplay = "HTML"; }
+    else if (q.includes("css")) { lang = "css"; langDisplay = "CSS"; }
+    else if (q.includes("sql")) { lang = "sql"; langDisplay = "SQL"; }
+
+    // Check for specific algorithms: FIBONACCI
+    if (q.includes("fibonacci")) {
+      if (lang === "c") {
+        return `Hi student! How are you doing today? Let's write a **C Program to print the Fibonacci Series**! 💻
+
+Here is the clean, standard C code to print the Fibonacci series up to a specified number of terms ($n$):
+
+\`\`\`c
+#include <stdio.h>
+
+int main() {
+    int i, n = 10;
+    int t1 = 0, t2 = 1;
+    int nextTerm = t1 + t2;
+
+    printf("Fibonacci Series up to %d terms:\\n", n);
+    
+    // Print the first two terms
+    printf("%d, %d, ", t1, t2);
+
+    // Calculate and print the remaining terms
+    for (i = 3; i <= n; ++i) {
+        printf("%d, ", nextTerm);
+        t1 = t2;
+        t2 = nextTerm;
+        nextTerm = t1 + t2;
+    }
+    printf("\\n");
+
+    return 0;
+}
+\`\`\`
+
+#### **How it works:**
+1. **Initialization**: We start with the first two terms of the series, **0** and **1**.
+2. **Loop Iteration**: The \`for\` loop calculates the \`nextTerm\` by summing the previous two terms (\`t1 + t2\`).
+3. **Variable Update**: We then shift the variables: \`t1\` becomes \`t2\`, and \`t2\` becomes the newly calculated \`nextTerm\` for the next loop run.
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+      }
+
+      if (lang === "python") {
+        return `Hi student! How are you doing today? Let's write a **Python Program to print the Fibonacci Series**! 💻
+
+Here is the highly pythonic way to generate the Fibonacci series up to $n$ terms:
+
+\`\`\`python
+def fibonacci_series(n):
+    t1, t2 = 0, 1
+    series = []
+    
+    for _ in range(n):
+        series.append(t1)
+        # Swap values efficiently in a single line
+        t1, t2 = t2, t1 + t2
+        
+    return series
+
+# Generate and print first 10 terms
+terms = 10
+print(f"Fibonacci Series up to {terms} terms:")
+print(fibonacci_series(terms))
+\`\`\`
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+      }
+
+      if (lang === "cpp") {
+        return `Hi student! How are you doing today? Let's write a **C++ Program to print the Fibonacci Series**! 💻
+
+\`\`\`cpp
+#include <iostream>
+using namespace std;
+
+int main() {
+    int n = 10;
+    int t1 = 0, t2 = 1, nextTerm = 0;
+
+    cout << "Fibonacci Series: ";
+
+    for (int i = 1; i <= n; ++i) {
+        // Print the active term
+        cout << t1 << ", ";
+        nextTerm = t1 + t2;
+        t1 = t2;
+        t2 = nextTerm;
+    }
+    cout << endl;
+    return 0;
+}
+\`\`\`
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+      }
+
+      if (lang === "java") {
+        return `Hi student! How are you doing today? Let's write a **Java Program to print the Fibonacci Series**! 💻
+
+Here is the robust, standard object-oriented Java code:
+
+\`\`\`java
+public class Fibonacci {
+    public static void main(String[] args) {
+        int n = 10, t1 = 0, t2 = 1;
+        System.out.print("Fibonacci Series of " + n + " terms: ");
+
+        for (int i = 1; i <= n; ++i) {
+            System.out.print(t1 + ", ");
+
+            int sum = t1 + t2;
+            t1 = t2;
+            t2 = sum;
+        }
+        System.out.println();
+    }
+}
+\`\`\`
+
+#### **Key Java OOP Concepts:**
+1. **Class Definition**: Everything in Java must be defined inside a class, in this case named \`Fibonacci\`.
+2. **Main Method**: The entry point where execution begins: \`public static void main(String[] args)\`.
+3. **Loop Control**: A standard \`for\` loop controls the sequence summation.
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+      }
+
+      return `Hi student! How are you doing today? Let's write a **JavaScript function to print the Fibonacci Series**! 💻
+
+Here is the clean JS recursive and iterative approach:
+
+\`\`\`javascript
+function getFibonacciSeries(terms) {
+  let t1 = 0, t2 = 1, nextTerm;
+  let result = [];
+
+  for (let i = 0; i < terms; i++) {
+    result.push(t1);
+    nextTerm = t1 + t2;
+    t1 = t2;
+    t2 = nextTerm;
+  }
+  return result;
+}
+
+// Example call
+console.log(getFibonacciSeries(10)); // [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+\`\`\`
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+    }
+
+    return `Hi student! How are you doing? Let's tackle your coding query in **${langDisplay}**! 💻
+
+Here is a clean, structured example showing best-practices in **${langDisplay}**:
+
+${lang === 'cpp' ? `\`\`\`cpp
+#include <iostream>
+
+void greetStudent() {
+    std::cout << "Hi student! Keep coding!" << std::endl;
+}
+
+int main() {
+    greetStudent();
+    return 0;
+}
+\`\`\`` : lang === 'c' ? `\`\`\`c
+#include <stdio.h>
+
+void greetStudent() {
+    printf("Hi student! Keep coding!\\n");
+}
+
+int main() {
+    greetStudent();
+    return 0;
+}
+\`\`\`` : lang === 'python' ? `\`\`\`python
+def greet_student():
+    print("Hi student! Keep coding!")
+
+greet_student()
+\`\`\`` : lang === 'java' ? `\`\`\`java
+public class Main {
+    public static void greetStudent() {
+        System.out.println("Hi student! Keep coding!");
+    }
+
+    public static void main(String[] args) {
+        greetStudent();
+    }
+}
+\`\`\`` : lang === 'html' ? `\`\`\`html
+<div class="card bg-zinc-900 border border-purple-500/25 p-6 rounded-xl">
+  <h3 class="text-white text-lg font-bold">Hi Student!</h3>
+  <p class="text-slate-300">Keep up the great study work!</p>
+</div>
+\`\`\`` : `\`\`\`javascript
+// Dynamic greeting function
+const greetStudent = () => {
+  console.log("Hi student! Keep coding!");
+};
+
+greetStudent();
+\`\`\``}
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+  }
+
+  // --- STATE G: STUDY ADVICE ---
+  if (q.includes("study") || q.includes("exam") || q.includes("learn") || q.includes("focus")) {
+    return `Hi student! How are you doing today? Let's look at a brief study trick! 🧠
+
+Try using the **Feynman Technique**: Explain your doubt out loud as if you were teaching it to a **10-year-old child**. If you hit a gap or stutter, you know exactly which textbook pages to review!
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+  }
+
+  // DEFAULT RESOLUTION
+  // Extract clean topic name
+  // Remove questions phrases to get the core noun (e.g. "what is javascript in brief" -> "Javascript")
+  let topicNoun = question
+    .replace(/what is/i, "")
+    .replace(/explain/i, "")
+    .replace(/in brief/i, "")
+    .replace(/in short/i, "")
+    .replace(/briefly/i, "")
+    .replace(/summary of/i, "")
+    .replace(/[?.]/g, "")
+    .trim();
+    
+  if (!topicNoun) topicNoun = "this concept";
+  const capitalizedTopic = topicNoun.charAt(0).toUpperCase() + topicNoun.slice(1);
+
+  const isBrief = q.includes("brief") || q.includes("short") || q.includes("summary") || q.includes("summarize");
+
+  if (isBrief) {
+    return `Hi student! How are you doing today? Let's take a comprehensive, high-density look at **"${capitalizedTopic}"**! 💡
+
+#### **1. Fundamental Academic Overview:**
+**${capitalizedTopic}** represents one of the most critical structural pillars in modern academic curricula. At its core molecular and systemic level, it functions as a highly sophisticated, unified operational framework designed to streamline multidimensional processes, standardize complex variables, and optimize resource distribution. By establishing standardized baseline criteria, it allows scientists, researchers, and professional developers to model extreme real-world conditions, construct highly predictable simulations, and eliminate structural inefficiencies that commonly compromise large-scale scientific systems.
+
+#### **2. Analytical Depth & Structural Mechanics:**
+When analyzing the core dynamics of **${capitalizedTopic}**, it becomes evident that its operational success relies on the tight integration of empirical metrics and automated control feedback loops. The system dynamically measures inputs, applies mathematical boundaries to minimize error margins, and translates quantitative data into highly readable dashboards. Because of this high-density processing capability, modern academic institutions and commercial enterprises prioritize mastering **${capitalizedTopic}** to ensure their computational models remain resilient under immense query loads, strict compliance audits, and advanced developmental challenges.
+
+#### **3. Advanced Research & Best Practices:**
+To master this discipline effectively, students are strongly encouraged to go beyond basic definitions. Start by mapping out a complete hierarchical dependency graph connecting **${capitalizedTopic}** to related structural algorithms, schedule dedicated active-recall testing sessions to lock the concepts into long-term memory, and build simple computational sandboxes to experiment with boundary constraints. This deep-dive study methodology guarantees you will not only pass your exams with distinction but also acquire practical, ready-to-deploy architectural expertise for your professional career.
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
+  }
+
+  return `Hi student! How are you doing today? Let's talk about **"${capitalizedTopic}"**! 💡
+
+Here is a high-level academic overview of this concept to help you study:
+
+#### **1. Core Concept & Definition:**
+**${capitalizedTopic}** is a fundamental pillar within this subject area. It represents a key concept that is widely utilized by academics, researchers, and professional developers to build structured, efficient, and robust systems.
+
+#### **2. Real-World Applications & Importance:**
+* **Efficiency & Standardisation**: Helps professionals maximize productivity by offering standard design principles and structuring complex data.
+* **Scale & Security**: Engineered to support high volumes of concurrent usage, transactions, or computations safely.
+* **Modern Integration**: Seamlessly interfaces with state-of-the-art analysis dashboards and quantitative research methodologies.
+
+#### **3. Step-by-Step Study Guide:**
+* **Analyze**: Identify the primary definitions and how **${capitalizedTopic}** interfaces with the rest of your course curriculum.
+* **Recall & Practice**: Sketch out a conceptual mind-map from memory, or set up a simple digital sandbox to test related terms.
+
+Would you further want me to explain this in more detail, or guide you through a specific sub-topic?`;
 };
 
 // 4. Simulated Roadmap Generator

@@ -18,6 +18,26 @@ import GlassCard from '../components/GlassCard';
  * SkillSync AI - Dedicated System Capabilities & Features Showcase Page
  */
 const Features = ({ onNavigate }) => {
+  // Intersection scroll observer for smooth reveal animations
+  React.useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('reveal-active');
+          }
+        });
+      },
+      { threshold: 0.05 }
+    );
+
+    const elements = document.querySelectorAll('.scroll-reveal');
+    elements.forEach((el) => observer.observe(el));
+
+    return () => {
+      elements.forEach((el) => observer.unobserve(el));
+    };
+  }, []);
 
   // List of high-speed features
   const features = [
@@ -101,7 +121,8 @@ const Features = ({ onNavigate }) => {
             return (
               <GlassCard 
                 key={idx} 
-                className="hover:-translate-y-1 transition-all duration-300 border border-white/5 dark:border-white/5 light:border-zinc-200 hover:border-purple-500/30 dark:hover:border-purple-500/20 light:hover:border-indigo-500/30 shadow-md group relative overflow-hidden flex flex-col justify-between min-h-[260px]"
+                tilt={true}
+                className={`hover:-translate-y-1 transition-all duration-300 border border-white/5 dark:border-white/5 light:border-zinc-200 hover:border-purple-500/30 dark:hover:border-purple-500/20 light:hover:border-indigo-500/30 shadow-md group relative overflow-hidden flex flex-col justify-between min-h-[260px] scroll-reveal stagger-${(idx % 3) + 1}`}
               >
                 {/* Visual backdrops */}
                 <div className={`absolute top-0 right-0 w-24 h-24 rounded-full bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-[0.08] blur-[25px] transition-opacity duration-500 pointer-events-none`} />
@@ -127,7 +148,7 @@ const Features = ({ onNavigate }) => {
         </div>
 
         {/* Dynamic CTA Board */}
-        <div className="w-full max-w-5xl mt-24">
+        <div className="w-full max-w-5xl mt-24 scroll-reveal">
           <div className="glass-panel rounded-3xl border border-white/10 dark:border-white/5 light:border-zinc-200 p-8 sm:p-12 relative overflow-hidden bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-pink-500/10 text-center flex flex-col items-center gap-6 shadow-2xl">
             <div className="absolute -top-24 left-1/2 transform -translate-x-1/2 w-96 h-96 rounded-full bg-purple-500/15 blur-[120px] pointer-events-none" />
 

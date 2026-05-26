@@ -14,7 +14,8 @@ import {
   createUserWithEmailAndPassword, 
   signOut, 
   signInWithPopup,
-  onAuthStateChanged
+  onAuthStateChanged,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
   doc, 
@@ -413,8 +414,19 @@ export const listenToAuthChanges = (callback) => {
           callback(basic);
         }
       } else {
-        localStorage.removeItem('active_mock_session');
-        callback(null);
+        // Failsafe sandbox session recovery: if Firebase cloud session is unauthenticated,
+        // check if a valid Sandbox local session is active in this browser before logging out!
+        const mockSession = localStorage.getItem('active_mock_session');
+        if (mockSession) {
+          try {
+            callback(JSON.parse(mockSession));
+          } catch (e) {
+            localStorage.removeItem('active_mock_session');
+            callback(null);
+          }
+        } else {
+          callback(null);
+        }
       }
     });
   } else {
@@ -477,10 +489,23 @@ export const uploadStudyNote = async (file, fileName, subject, userId, userRole 
   return runWithFailover(cloudFn, localFn, 4000);
 };
 
+// Helper to convert File object to Base64 string for permanent Local Storage persistence
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.readAsDataURL(file);
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = (error) => reject(error);
+});
+
 // Helper function to upload note locally
 const uploadNoteLocally = async (file, fileName, subject, userId, uploadDate, isPublic = false, teacherName = '') => {
-  // Create a virtual URL for our local PDF/Image so it can be previewed!
-  const fileURL = URL.createObjectURL(file);
+  let fileURL = "";
+  try {
+    fileURL = await fileToBase64(file);
+  } catch (e) {
+    console.error("Failed to convert file to Base64, falling back to session blob:", e);
+    fileURL = URL.createObjectURL(file);
+  }
   
   const noteData = {
     id: 'local_note_' + Math.random().toString(36).substr(2, 9),
@@ -547,6 +572,57 @@ const getLocalNotes = (userId, userRole = 'student') => {
     return localNotes.filter(note => note.uploadedBy === userId).reverse();
   } else {
     return localNotes.filter(note => note.isPublic || note.uploadedBy === userId).reverse();
+  }
+};
+
+/**
+ * Delete a study note from cloud or local storage sandbox
+ */
+export const deleteStudyNote = async (noteId, userId) => {
+  if (isFirebaseActive && !noteId.startsWith('local_note_')) {
+    try {
+      const { deleteDoc, doc: fDoc } = await import('firebase/firestore');
+      const noteDoc = fDoc(db, "notes", noteId);
+      await deleteDoc(noteDoc);
+      await decrementUserNotesCount(userId);
+      return true;
+    } catch (e) {
+      console.warn("Failed to delete cloud note. Trying local.", e);
+      deleteLocalNote(noteId);
+      return true;
+    }
+  } else {
+    deleteLocalNote(noteId);
+    return true;
+  }
+};
+
+const deleteLocalNote = (noteId) => {
+  const localNotes = JSON.parse(localStorage.getItem('local_notes') || '[]');
+  const filtered = localNotes.filter(n => n.id !== noteId);
+  localStorage.setItem('local_notes', JSON.stringify(filtered));
+  decrementLocalNotesCount();
+};
+
+const decrementLocalNotesCount = () => {
+  const activeSession = JSON.parse(localStorage.getItem('active_mock_session') || '{}');
+  if (activeSession.uid) {
+    activeSession.notesCount = Math.max(0, (activeSession.notesCount || 1) - 1);
+    localStorage.setItem('active_mock_session', JSON.stringify(activeSession));
+    updateMockUserList(activeSession);
+  }
+};
+
+const decrementUserNotesCount = async (userId) => {
+  try {
+    const userDoc = doc(db, "users", userId);
+    const snap = await getDoc(userDoc);
+    if (snap.exists()) {
+      const currentNotes = snap.data().notesCount || 1;
+      await updateDoc(userDoc, { notesCount: Math.max(0, currentNotes - 1) });
+    }
+  } catch (e) {
+    console.error(e);
   }
 };
 
@@ -815,4 +891,18 @@ const updateMockUserList = (updatedProfile) => {
     mockUsers[index].profile = updatedProfile;
     localStorage.setItem('mock_users', JSON.stringify(mockUsers));
   }
+};
+
+/**
+ * Failsafe password reset trigger for Firebase & Sandbox local mode
+ */
+export const sendPasswordResetObj = async (email) => {
+  const cloudFn = async () => {
+    await sendPasswordResetEmail(auth, email);
+    return { success: true };
+  };
+  const localFn = () => {
+    return { success: true };
+  };
+  return runWithFailover(cloudFn, localFn);
 };

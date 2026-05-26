@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import GlassCard from '../components/GlassCard';
 import LoadingState from '../components/LoadingState';
-import { uploadStudyNote, getUserNotes, updateNoteSummary } from '../services/db';
+import { uploadStudyNote, getUserNotes, updateNoteSummary, deleteStudyNote } from '../services/db';
 import { generateNoteSummary } from '../services/ai';
 
 /**
@@ -120,6 +120,20 @@ const NotesUpload = ({ activeUser, onStartQuiz }) => {
       setUploadError("Upload failed. Please ensure Firebase console Storage is enabled or write permissions are allowed.");
     } finally {
       setUploading(false);
+    }
+  };
+
+  // Delete Note Callback
+  const handleDeleteNote = async (noteId) => {
+    if (!window.confirm("Are you sure you want to delete this document from the curriculum?")) return;
+    try {
+      await deleteStudyNote(noteId, activeUser.uid);
+      setNotes(prev => prev.filter(n => n.id !== noteId));
+      if (activeNote?.id === noteId) {
+        setActiveNote(null);
+      }
+    } catch (e) {
+      console.error("Failed to delete note:", e);
     }
   };
 
@@ -398,6 +412,19 @@ const NotesUpload = ({ activeUser, onStartQuiz }) => {
                     </div>
 
                     <div className="flex gap-2">
+                      {isTeacher && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteNote(note.id);
+                          }}
+                          className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 hover:border-red-500/40 text-red-400 hover:bg-red-500/20 transition-all z-20"
+                          title="Delete Document"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <a 
                         href={note.fileURL} 
                         target="_blank" 

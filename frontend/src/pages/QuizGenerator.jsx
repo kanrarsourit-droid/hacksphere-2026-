@@ -20,7 +20,7 @@ import { generateQuizFromNote } from '../services/ai';
 /**
  * SkillSync AI - Interactive Exam Simulator and AI Quiz Generator
  */
-const QuizGenerator = ({ activeUser, initialNoteContext, onQuizFinished }) => {
+const QuizGenerator = ({ activeUser, initialNoteContext, onNavigateToNotes, onQuizFinished }) => {
   const [notes, setNotes] = useState([]);
   const [selectedNote, setSelectedNote] = useState(initialNoteContext ? initialNoteContext.id : "");
   const [quizType, setQuizType] = useState("mcq"); // mcq, true_false, short_answer
@@ -209,7 +209,18 @@ const QuizGenerator = ({ activeUser, initialNoteContext, onQuizFinished }) => {
             
             {/* 1. Context Source Selection */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-500 pl-1">Choose Study Context</label>
+              <div className="flex items-center justify-between pl-1">
+                <label className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-zinc-500">Choose Study Context</label>
+                {onNavigateToNotes && (
+                  <button 
+                    type="button"
+                    onClick={onNavigateToNotes}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 font-bold underline flex items-center gap-0.5 transition-colors"
+                  >
+                    📁 Upload a PDF Note first
+                  </button>
+                )}
+              </div>
               <select
                 value={selectedNote}
                 onChange={(e) => handleNoteChange(e.target.value)}
@@ -220,6 +231,9 @@ const QuizGenerator = ({ activeUser, initialNoteContext, onQuizFinished }) => {
                   <option key={note.id} value={note.id} className="bg-space-900 text-white dark:bg-space-950 dark:text-white light:bg-white light:text-indigo-950">Document Note: {note.fileName}</option>
                 ))}
               </select>
+              <p className="text-[10px] text-slate-500 pl-1 leading-normal">
+                To test yourself on your specific uploaded notes, select them from this list. To test on standard courses, choose "General Subject Test".
+              </p>
             </div>
 
             {/* 2. Subject Selector (Only active if general test selected) */}

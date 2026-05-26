@@ -13,6 +13,7 @@ import DoubtSolver from './pages/DoubtSolver';
 import Roadmap from './pages/Roadmap';
 import Profile from './pages/Profile';
 import PortalHome from './pages/PortalHome';
+import NoticeBoard from './pages/NoticeBoard';
 import Features from './pages/Features';
 import Subjects from './pages/Subjects';
 import AITools from './pages/AITools';
@@ -28,10 +29,14 @@ import { listenToAuthChanges, logoutUser, setFirebaseOffline } from './services/
  */
 function App() {
   // Navigation State: 'home' | 'login' | 'dashboard'
-  const [currentPage, setCurrentPage] = useState('home');
+  const [currentPage, setCurrentPage] = useState(() => {
+    return localStorage.getItem('skillsync_current_page') || 'home';
+  });
   
-  // Dashboard Sub-Tab State: 'home' | 'dashboard' | 'notes' | 'quiz' | 'chatbot' | 'roadmap' | 'profile'
-  const [activeTab, setActiveTab] = useState('home');
+  // Dashboard Sub-Tab State: 'home' | 'dashboard' | 'notes' | 'quiz' | 'chatbot' | 'roadmap' | 'profile' | 'notice_board'
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('skillsync_active_tab') || 'home';
+  });
   
   // User Session State
   const [activeUser, setActiveUser] = useState(null);
@@ -39,6 +44,15 @@ function App() {
 
   // Deep link context (for starting quiz based on a specific note upload)
   const [initialQuizNote, setInitialQuizNote] = useState(null);
+
+  // Persist current page & tab when changed
+  useEffect(() => {
+    localStorage.setItem('skillsync_current_page', currentPage);
+  }, [currentPage]);
+
+  useEffect(() => {
+    localStorage.setItem('skillsync_active_tab', activeTab);
+  }, [activeTab]);
 
   // Listen to Firebase or Local Storage Authentication changes
   useEffect(() => {
@@ -70,7 +84,12 @@ function App() {
       // Auto-transition to dashboard if user logs in
       if (user) {
         setCurrentPage('dashboard');
-        setActiveTab('home');
+        
+        // Restore their exact tab they had open before reload!
+        const restoredTab = localStorage.getItem('skillsync_active_tab');
+        if (restoredTab && restoredTab !== 'home') {
+          setActiveTab(restoredTab);
+        }
       } else {
         // Only reset to home if they are not already on other public routes
         setCurrentPage(prev => {
@@ -89,6 +108,9 @@ function App() {
   // Handle Logout
   const handleLogout = async () => {
     try {
+      localStorage.removeItem('active_mock_session');
+      localStorage.removeItem('skillsync_current_page');
+      localStorage.removeItem('skillsync_active_tab');
       await logoutUser();
       setActiveUser(null);
       setCurrentPage('home');
@@ -160,6 +182,10 @@ function App() {
             />
           )}
 
+          {activeTab === 'notice_board' && (
+            <NoticeBoard activeUser={activeUser} />
+          )}
+
           {activeTab === 'dashboard' && (
             <Dashboard 
               activeUser={activeUser} 
@@ -181,6 +207,7 @@ function App() {
             <QuizGenerator 
               activeUser={activeUser} 
               initialNoteContext={initialQuizNote} 
+              onNavigateToNotes={() => setActiveTab('notes')}
               onQuizFinished={() => {
                 // Return to dashboard and clear initial quiz context
                 setInitialQuizNote(null);

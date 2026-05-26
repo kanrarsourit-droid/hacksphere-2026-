@@ -22,6 +22,26 @@ import GlassCard from '../components/GlassCard';
  * SkillSync AI - Dedicated Academic Streams & Coursework Showcase Page
  */
 const Subjects = ({ onNavigate }) => {
+  // Intersection scroll observer for smooth reveal animations
+  React.useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('reveal-active');
+          }
+        });
+      },
+      { threshold: 0.05 }
+    );
+
+    const elements = document.querySelectorAll('.scroll-reveal');
+    elements.forEach((el) => observer.observe(el));
+
+    return () => {
+      elements.forEach((el) => observer.unobserve(el));
+    };
+  }, []);
 
   // Streams lists
   const subjects = [
@@ -105,7 +125,8 @@ const Subjects = ({ onNavigate }) => {
                       className="text-left w-full block focus:outline-none"
                     >
                       <GlassCard 
-                        className="hover:-translate-y-1 transition-all duration-300 border border-white/5 dark:border-white/5 light:border-zinc-200 hover:border-purple-500/25 dark:hover:border-purple-500/15 light:hover:border-indigo-500/20 flex flex-col justify-between min-h-[170px] group w-full h-full"
+                        tilt={true}
+                        className={`hover:-translate-y-1 transition-all duration-300 border border-white/5 dark:border-white/5 light:border-zinc-200 hover:border-purple-500/25 dark:hover:border-purple-500/15 light:hover:border-indigo-500/20 flex flex-col justify-between min-h-[170px] group w-full h-full scroll-reveal stagger-${(sIdx % 5) + 1}`}
                       >
                         <div className="flex justify-between items-start">
                           <div className={`w-10 h-10 rounded-lg bg-gradient-to-tr ${sub.color} text-white flex items-center justify-center shadow-md`}>

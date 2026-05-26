@@ -29,12 +29,16 @@ const PortalHome = ({ activeUser, onTabChange }) => {
   const [announcements, setAnnouncements] = useState([]);
   const [newAnnouncement, setNewAnnouncement] = useState("");
   const [broadcasting, setBroadcasting] = useState(false);
+  const [hasNewNotice, setHasNewNotice] = useState(false);
+  const [annCategory, setAnnCategory] = useState("General");
 
-  // Load announcements
+  // Load announcements & check unread status
   useEffect(() => {
     const saved = localStorage.getItem('skillsync_announcements');
+    let loadedAnnouncements = [];
     if (saved) {
-      setAnnouncements(JSON.parse(saved));
+      loadedAnnouncements = JSON.parse(saved);
+      setAnnouncements(loadedAnnouncements);
     } else {
       // Seed default announcement
       const seed = [
@@ -42,13 +46,32 @@ const PortalHome = ({ activeUser, onTabChange }) => {
           id: 'seed-1',
           text: "Welcome scholars to the SkillSync platform! Explore study timelines, doubt solvers, and mock quizzes.",
           author: "Admin Portal",
+          category: "General",
           date: new Date().toLocaleDateString()
         }
       ];
       localStorage.setItem('skillsync_announcements', JSON.stringify(seed));
       setAnnouncements(seed);
+      loadedAnnouncements = seed;
     }
-  }, []);
+
+    // Unread notice check (Student only!)
+    const isTeacherRole = activeUser?.role === 'teacher';
+    if (!isTeacherRole && loadedAnnouncements.length > 0) {
+      const lastSeen = localStorage.getItem('skillsync_last_seen_notice') || "";
+      const latestId = loadedAnnouncements[0].id;
+      if (lastSeen !== latestId) {
+        setHasNewNotice(true);
+      }
+    }
+  }, [activeUser]);
+
+  const markNoticesAsRead = () => {
+    if (announcements.length > 0) {
+      localStorage.setItem('skillsync_last_seen_notice', announcements[0].id);
+      setHasNewNotice(false);
+    }
+  };
 
   // Post Announcement (Teacher only!)
   const handlePostAnnouncement = (e) => {
@@ -60,6 +83,7 @@ const PortalHome = ({ activeUser, onTabChange }) => {
       id: `ann-${Date.now()}`,
       text: newAnnouncement,
       author: activeUser?.displayName || "Class Teacher",
+      category: annCategory,
       date: new Date().toLocaleDateString()
     };
 
@@ -317,14 +341,31 @@ const PortalHome = ({ activeUser, onTabChange }) => {
                   Broadcast exam schedules, homework updates, or notices directly onto all active student workspace tickers.
                 </p>
 
-                <form onSubmit={handlePostAnnouncement} className="space-y-4">
-                  <textarea
-                    required
-                    value={newAnnouncement}
-                    onChange={(e) => setNewAnnouncement(e.target.value)}
-                    placeholder="Type your notice here... e.g. Electromagnetism worksheets uploaded! Quiz scheduled this Friday."
-                    className="w-full h-24 p-3 rounded-xl text-xs bg-space-900/60 dark:bg-space-900/50 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 dark:focus:border-purple-500/30 text-white dark:text-white light:text-indigo-950 transition-colors resize-none leading-relaxed"
-                  />
+                 <form onSubmit={handlePostAnnouncement} className="space-y-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider pl-0.5">Notice Category</label>
+                    <select
+                      value={annCategory}
+                      onChange={(e) => setAnnCategory(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl text-[11px] bg-space-900/60 dark:bg-space-900/50 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 text-white dark:text-white light:text-indigo-950 focus:outline-none focus:border-purple-500/50 transition-colors"
+                    >
+                      <option value="General">📢 General Update</option>
+                      <option value="Exam">⏰ Exam Timeline</option>
+                      <option value="Homework">📘 Homework Schedule</option>
+                      <option value="Lab">🧪 Lab/Practical Work</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider pl-0.5 font-medium">Notice Description</label>
+                    <textarea
+                      required
+                      value={newAnnouncement}
+                      onChange={(e) => setNewAnnouncement(e.target.value)}
+                      placeholder="Type your notice here... e.g. Electromagnetism worksheets uploaded! Quiz scheduled this Friday."
+                      className="w-full h-24 p-3 rounded-xl text-xs bg-space-900/60 dark:bg-space-900/50 light:bg-white border border-white/10 dark:border-white/5 light:border-zinc-200 focus:outline-none focus:border-purple-500/50 dark:focus:border-purple-500/30 text-white dark:text-white light:text-indigo-950 transition-colors resize-none leading-relaxed"
+                    />
+                  </div>
                   <button
                     type="submit"
                     disabled={broadcasting}
@@ -407,6 +448,117 @@ const PortalHome = ({ activeUser, onTabChange }) => {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </GlassCard>
+          </div>
+
+        </div>
+      )}
+
+      {!isTeacher && (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+          
+          {/* STUDENT DEDICATED CLASS ANNOUNCEMENT BOARD */}
+          <div className="xl:col-span-2">
+            <GlassCard className="p-6 border border-white/5 dark:border-white/5 light:border-zinc-200 relative min-h-[350px] flex flex-col justify-between">
+              
+              {/* Pointing attention finger cursor if there are new unread notices! */}
+              {hasNewNotice && (
+                <div className="absolute -top-3 -right-3 z-30 bg-gradient-to-r from-purple-600 to-pink-600 border border-purple-400 text-white text-[9px] font-extrabold uppercase px-3 py-1 rounded-full shadow-lg flex items-center gap-1.5 animate-bounce">
+                  <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                  <span>👉 New Notice Posted!</span>
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-sm font-extrabold text-white dark:text-white light:text-indigo-950 mb-1.5 flex items-center gap-2 border-b border-white/5 dark:border-white/5 light:border-zinc-200 pb-2">
+                  <Megaphone className="w-4.5 h-4.5 text-purple-400" />
+                  Classroom Notice Board
+                  {hasNewNotice && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[7px] font-bold bg-pink-500 text-white animate-pulse">
+                      NEW BROADCAST
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-slate-500 leading-normal mb-5">
+                  Stay updated with official exam timetables, homework releases, and important reminders published by your Faculty.
+                </p>
+
+                {announcements.length === 0 ? (
+                  <div className="text-center py-10 flex flex-col items-center gap-2 bg-white/2 dark:bg-white/1 light:bg-indigo-50/20 border border-white/5 dark:border-white/5 light:border-zinc-200 rounded-2xl">
+                    <span className="text-2xl">📭</span>
+                    <h4 className="text-xs font-bold text-slate-400">Notice Board is empty</h4>
+                    <p className="text-[10px] text-slate-500">There are currently no active announcements published by your teachers.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1">
+                    {announcements.map((ann) => (
+                      <div 
+                        key={ann.id} 
+                        className="p-4 rounded-xl bg-white/3 dark:bg-white/2 light:bg-indigo-50/30 border border-white/10 dark:border-white/5 light:border-zinc-200 hover:border-purple-500/30 transition-all flex items-start gap-3 relative group"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center shrink-0">
+                          <Bookmark className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <strong className="text-xs text-white dark:text-white light:text-indigo-950 font-bold">{ann.author}</strong>
+                            <div className="flex items-center gap-1.5 text-[9px] text-slate-500">
+                              <Calendar className="w-3 h-3" />
+                              <span>{ann.date}</span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-slate-350 dark:text-slate-300 light:text-zinc-700 leading-relaxed mt-1.5 whitespace-pre-wrap">
+                            {ann.text}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {hasNewNotice && (
+                <div className="mt-6 pt-4 border-t border-white/5 dark:border-white/5 light:border-zinc-200/50 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={markNoticesAsRead}
+                    className="px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-[10px] font-bold text-white transition-colors cursor-pointer"
+                  >
+                    ✓ Mark all as Read
+                  </button>
+                </div>
+              )}
+
+            </GlassCard>
+          </div>
+
+          {/* DEDICATED SIDEBAR: ACADEMIC MOTIVATION CARD */}
+          <div className="xl:col-span-1">
+            <GlassCard className="p-6 border border-white/5 dark:border-white/5 light:border-zinc-200 h-full flex flex-col justify-between min-h-[350px] relative overflow-hidden bg-gradient-to-br from-indigo-500/5 to-transparent">
+              <div className="absolute top-0 right-0 w-24 h-24 rounded-full bg-indigo-500/10 blur-[40px] pointer-events-none" />
+              
+              <div>
+                <h3 className="text-sm font-extrabold text-white dark:text-white light:text-indigo-950 mb-1.5 flex items-center gap-2 border-b border-white/5 dark:border-white/5 light:border-zinc-200 pb-2">
+                  <TrendingUp className="w-4.5 h-4.5 text-purple-400" />
+                  Weekly Scholar Tips
+                </h3>
+                <p className="text-xs text-slate-500 leading-normal mb-4">
+                  Boost your study retention and optimize exam scores using standard learning techniques built directly into SkillSync:
+                </p>
+
+                <div className="space-y-3">
+                  <div className="p-2.5 rounded-lg bg-white/2 dark:bg-white/2 border border-white/5 text-[11px] text-slate-400 leading-relaxed">
+                    🎓 **Active Recall**: Test your memory boundaries using **AI Quiz generator** rather than just rereading notes!
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/2 dark:bg-white/2 border border-white/5 text-[11px] text-slate-400 leading-relaxed">
+                    ⏰ **Feynman Method**: Explain complex queries simply in **Doubt Solver Chatbot** to find syllabus learning gaps instantly!
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 pt-3 border-t border-white/5 text-[10px] font-semibold text-center text-slate-500">
+                ⚡ Powered by SkillSync AI Engine
               </div>
             </GlassCard>
           </div>

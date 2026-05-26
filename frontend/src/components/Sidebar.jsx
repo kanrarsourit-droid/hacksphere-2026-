@@ -11,7 +11,8 @@ import {
   Sparkles,
   Menu,
   X,
-  Home as HomeNavIcon
+  Home as HomeNavIcon,
+  Megaphone
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import ThemeToggler from './ThemeToggler';
@@ -22,19 +23,58 @@ import ThemeToggler from './ThemeToggler';
 const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout, onNavigate }) => {
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [hasUnreadNotice, setHasUnreadNotice] = useState(false);
 
   const isTeacher = activeUser?.role === 'teacher';
+
+  React.useEffect(() => {
+    if (isTeacher) return;
+    
+    const checkNotices = () => {
+      try {
+        const saved = localStorage.getItem('skillsync_announcements');
+        if (saved) {
+          const announcements = JSON.parse(saved);
+          if (announcements.length > 0) {
+            const lastSeen = localStorage.getItem('skillsync_last_seen_notice') || "";
+            if (lastSeen !== announcements[0].id) {
+              setHasUnreadNotice(true);
+              return;
+            }
+          }
+        }
+        setHasUnreadNotice(false);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    checkNotices();
+
+    // Event listeners for responsive dashboard resets
+    window.addEventListener('skillsync_notices_read', checkNotices);
+    window.addEventListener('storage', checkNotices);
+    const interval = setInterval(checkNotices, 1000);
+
+    return () => {
+      window.removeEventListener('skillsync_notices_read', checkNotices);
+      window.removeEventListener('storage', checkNotices);
+      clearInterval(interval);
+    };
+  }, [isTeacher, activeTab]);
 
   // List of sidebar navigation links filtered dynamically by role!
   const menuItems = isTeacher 
     ? [
         { id: 'home', label: 'Portal Home', icon: HomeNavIcon },
+        { id: 'notice_board', label: 'Notice Board', icon: Megaphone },
         { id: 'dashboard', label: 'Teacher Console', icon: LayoutDashboard },
         { id: 'notes', label: 'Curriculum Studio', icon: FileText },
         { id: 'profile', label: 'Teacher Profile', icon: User },
       ]
     : [
         { id: 'home', label: 'Portal Home', icon: HomeNavIcon },
+        { id: 'notice_board', label: 'Notice Board', icon: Megaphone },
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { id: 'notes', label: 'Classroom Library', icon: FileText },
         { id: 'quiz', label: 'AI Quiz', icon: BrainCircuit },
@@ -120,6 +160,13 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout, onNavigate }) =
               >
                 <Icon className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${isActive ? 'text-purple-400 dark:text-purple-400 light:text-indigo-600' : ''}`} />
                 <span>{item.label}</span>
+                
+                {item.id === 'notice_board' && hasUnreadNotice && (
+                  <span className="relative flex h-2 w-2 ml-auto shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-pink-500 shadow-[0_0_10px_#ec4899]"></span>
+                  </span>
+                )}
                 
                 {/* Micro hover glow line */}
                 <div className={`absolute top-0 right-0 h-full w-[2px] bg-purple-500/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${isActive ? 'hidden' : ''}`} />
