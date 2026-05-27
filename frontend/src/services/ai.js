@@ -17,7 +17,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // ----------------------------------------------------
 // Cycles through available model variations to handle regional or API-version blocks dynamically.
 const generateWithModelFallback = async (apiKey, prompt, forceJson = false) => {
-  const models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+  const models = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
   const genAI = new GoogleGenerativeAI(apiKey);
   
   let lastError = null;
@@ -32,9 +32,9 @@ const generateWithModelFallback = async (apiKey, prompt, forceJson = false) => {
       console.warn(`Model ${modelName} failed or is not available. Trying next fallback... Error details:`, e);
       lastError = e;
       
-      // Stop looping early if the key itself is explicitly invalid or blocked (not a model 404)
+      // Stop looping early if the key itself is explicitly invalid or blocked
       const msg = (e.message || String(e)).toLowerCase();
-      if (msg.includes("api key not valid") || msg.includes("api_key_invalid") || msg.includes("blocked") || msg.includes("quota")) {
+      if (msg.includes("api key not valid") || msg.includes("api_key_invalid") || msg.includes("blocked")) {
         break;
       }
     }
@@ -48,86 +48,19 @@ const generateWithModelFallback = async (apiKey, prompt, forceJson = false) => {
 
 export const generateNoteSummary = async (fileName, subject, extractedText = "") => {
   const defaultText = extractedText || `This is a study note uploaded for the subject ${subject} named "${fileName}".`;
-  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
   
-  if (apiKey && apiKey !== "YOUR_GEMINI_API_KEY_HERE" && !apiKey.includes("PLACEHOLDER") && apiKey.trim() !== "") {
-    const cleanKey = apiKey.trim();
+  try {
+    const response = await fetch("http://localhost:5000/generate-summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileName, subject, extractedText: defaultText })
+    });
     
-    // --- ROUTE A: OPENAI COMPATIBILITY FOR SUMMARIES ---
-    if (cleanKey.startsWith("sk-")) {
-      try {
-        const prompt = `
-          You are an expert academic research assistant. 
-          Analyze the following student study material and generate a detailed academic summary:
-          
-          Subject: ${subject}
-          Document Title: ${fileName}
-          Document Text/Content: ${defaultText}
-          
-          Please format your response EXACTLY as a structured output with two parts:
-          1. A comprehensive, beautifully formatted Markdown summary (using headers, bold terms, bullet points).
-          2. A section of exactly 4-5 major "Key Takeaways" or formula sheets that are critical for exams. Separated by | character or listed as a JSON array in your prompt.
-          
-          Format the entire response like this:
-          ---SUMMARY---
-          (Place the detailed markdown summary here)
-          ---TAKEAWAYS---
-          * Takeaway 1
-          * Takeaway 2
-          * Takeaway 3
-        `;
-        
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${cleanKey}`
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: [{ role: "user", content: prompt }]
-          })
-        });
-        
-        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-        const data = await response.json();
-        return parseSummaryResponse(data.choices[0].message.content);
-      } catch (error) {
-        console.error("OpenAI Summary Error, loading simulated response: ", error);
-        return generateSimulatedSummary(fileName, subject);
-      }
-    }
-    
-    // --- ROUTE B: GEMINI FOR SUMMARIES ---
-    try {
-      const prompt = `
-        You are an expert academic research assistant. 
-        Analyze the following student study material and generate a detailed academic summary:
-        
-        Subject: ${subject}
-        Document Title: ${fileName}
-        Document Text/Content: ${defaultText}
-        
-        Please format your response EXACTLY as a structured output with two parts:
-        1. A comprehensive, beautifully formatted Markdown summary (using headers, bold terms, bullet points).
-        2. A section of exactly 4-5 major "Key Takeaways" or formula sheets that are critical for exams. Separated by | character or listed as a JSON array in your prompt.
-        
-        Format the entire response like this:
-        ---SUMMARY---
-        (Place the detailed markdown summary here)
-        ---TAKEAWAYS---
-        * Takeaway 1
-        * Takeaway 2
-        * Takeaway 3
-      `;
-      
-      const text = await generateWithModelFallback(cleanKey, prompt, false);
-      return parseSummaryResponse(text);
-    } catch (error) {
-      console.error("Gemini Summary Error, loading simulated response: ", error);
-      return generateSimulatedSummary(fileName, subject);
-    }
-  } else {
+    if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+    const data = await response.json();
+    return parseSummaryResponse(data.text);
+  } catch (error) {
+    console.error("Backend Summary Error, loading simulated response: ", error);
     return generateSimulatedSummary(fileName, subject);
   }
 };
@@ -164,93 +97,18 @@ const parseSummaryResponse = (text) => {
 // ==========================================
 
 export const generateQuizFromNote = async (fileName, subject, quizType, noteContent = "") => {
-  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
-  
-  if (apiKey && apiKey !== "YOUR_GEMINI_API_KEY_HERE" && !apiKey.includes("PLACEHOLDER") && apiKey.trim() !== "") {
-    const cleanKey = apiKey.trim();
-    const prompt = `
-      You are a high school and college professor. Create a study quiz based on this student note:
-      
-      Subject: ${subject}
-      Document: ${fileName}
-      Document Text: ${noteContent || "General academic overview"}
-      Quiz Category Type: ${quizType} (e.g. "mcq", "true_false", or "short_answer")
-      
-      Generate exactly 5 questions of this type. 
-      You MUST return the output in a strict JSON array format.
-      
-      For "mcq" type:
-      [
-        {
-          "question": "The question content here?",
-          "options": ["Option A", "Option B", "Option C", "Option D"],
-          "answer": "Option B",
-          "explanation": "Detailed explanation of why Option B is correct."
-        }
-      ]
-      
-      For "true_false" type:
-      [
-        {
-          "question": "Statement of facts?",
-          "options": ["True", "False"],
-          "answer": "True",
-          "explanation": "Detailed explanation of why this statement is True."
-        }
-      ]
-      
-      For "short_answer" type:
-      [
-        {
-          "question": "What is theory X?",
-          "options": [],
-          "answer": "A short answer key containing core terms that should be matched.",
-          "explanation": "Grading rubric and detailed explanation of theory X."
-        }
-      ]
-      
-      Ensure questions are intellectually stimulating and match the academic level of the subject.
-    `;
+  try {
+    const response = await fetch("http://localhost:5000/generate-quiz", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileName, subject, quizType, noteContent })
+    });
     
-    // --- ROUTE A: OPENAI QUIZ ---
-    if (cleanKey.startsWith("sk-")) {
-      try {
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${cleanKey}`
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            response_format: { type: "json_object" },
-            messages: [{ role: "user", content: prompt + " Please output pure raw JSON only. Do not wrap in markdown tags." }]
-          })
-        });
-        
-        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-        const data = await response.json();
-        
-        // OpenAI output parser supporting direct JSON completion formats
-        const content = data.choices[0].message.content;
-        const parsed = JSON.parse(content);
-        return Array.isArray(parsed) ? parsed : (parsed.questions || Object.values(parsed)[0]);
-      } catch (error) {
-        console.error("OpenAI Quiz Error, loading simulated quiz: ", error);
-        return generateSimulatedQuiz(subject, quizType);
-      }
-    }
-    
-    // --- ROUTE B: GEMINI QUIZ ---
-    try {
-      const jsonText = await generateWithModelFallback(cleanKey, prompt, true);
-      const parsedQuestions = JSON.parse(jsonText);
-      return parsedQuestions;
-    } catch (error) {
-      console.error("Gemini Quiz Error, loading simulated quiz: ", error);
-      return generateSimulatedQuiz(subject, quizType);
-    }
-  } else {
+    if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+    const data = await response.json();
+    return JSON.parse(data.jsonText);
+  } catch (error) {
+    console.error("Backend Quiz Error, loading simulated quiz: ", error);
     return generateSimulatedQuiz(subject, quizType);
   }
 };
@@ -260,100 +118,18 @@ export const generateQuizFromNote = async (fileName, subject, quizType, noteCont
 // ==========================================
 
 export const solveAcademicDoubt = async (chatHistory, newQuestion, subjectContext = "General") => {
-  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
-  
-  if (apiKey && apiKey !== "YOUR_GEMINI_API_KEY_HERE" && !apiKey.includes("PLACEHOLDER") && apiKey.trim() !== "") {
-    const cleanKey = apiKey.trim();
-
-    // Define a robust 3.5-second connection timeout racer
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Cloud AI Connection Timeout")), 3500)
-    );
-
-    const runCloudQuery = async () => {
-      // --- ROUTE A: OPENAI CHATGPT KEY (sk-...) ---
-      if (cleanKey.startsWith("sk-")) {
-        const openAiMessages = [
-          { 
-            role: "system", 
-            content: `You are "GPT Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
-Always start your responses in a welcoming, student-friendly tone (e.g., "Hi student! How are you doing today? Let's tackle this query together!").
-Provide a brief, high-impact explanation of the core concept first. 
-Always end your response by actively asking if the student wants to learn more, using exactly or similar to:
-"Would you further want me to explain this in more detail, or guide you through a specific sub-topic?"`
-          }
-        ];
-
-        // Convert chat history
-        chatHistory.forEach(msg => {
-          openAiMessages.push({
-            role: msg.sender === 'user' ? 'user' : 'assistant',
-            content: msg.text
-          });
-        });
-
-        // Add new question
-        openAiMessages.push({
-          role: "user",
-          content: newQuestion
-        });
-
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${cleanKey}`
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: openAiMessages
-          })
-        });
-
-        if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error?.message || `HTTP error ${response.status}`);
-        }
-
-        const data = await response.json();
-        return data.choices[0].message.content;
-      }
-
-      // --- ROUTE B: GOOGLE GEMINI KEY (AIzaSy...) ---
-      // Format chat history into a readable chat log for Gemini
-      const formattedHistory = chatHistory.map(msg => {
-        return `${msg.sender === 'user' ? 'Student' : 'AI Tutor'}: ${msg.text}`;
-      }).join('\n');
-      
-      const prompt = `
-        You are "Gemini Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
-        Always start your responses in a welcoming, student-friendly tone (e.g., "Hi student! How are you doing today? Let's tackle this query together!").
-        
-        Provide a brief, high-impact explanation of the core concept first. 
-        Always end your response by actively asking if the student wants to learn more, using exactly or similar to:
-        "Would you further want me to explain this in more detail, or guide you through a specific sub-topic?"
-        
-        Subject Context: ${subjectContext}
-        
-        Chat Log:
-        ${formattedHistory}
-        
-        New Student Doubt: ${newQuestion}
-        
-        Response (as Gemini Student Mentor):
-      `;
-      
-      return await generateWithModelFallback(cleanKey, prompt, false);
-    };
-
-    try {
-      // Race the cloud fetch against the 3.5s timeout promise
-      return await Promise.race([runCloudQuery(), timeoutPromise]);
-    } catch (error) {
-      console.error("AI Cloud Query failed or timed out, failing over to simulator:", error);
-      return simulateChatReply(chatHistory, newQuestion, subjectContext);
-    }
-  } else {
+  try {
+    const response = await fetch("http://localhost:5000/ask-ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatHistory, newQuestion, subjectContext })
+    });
+    
+    if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+    const data = await response.json();
+    return data.answer;
+  } catch (error) {
+    console.error("Backend Chatbot Error, loading simulated response: ", error);
     return simulateChatReply(chatHistory, newQuestion, subjectContext);
   }
 };
@@ -363,69 +139,18 @@ Always end your response by actively asking if the student wants to learn more, 
 // ==========================================
 
 export const generateStudyRoadmap = async (goal, timeAvailable) => {
-  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
-  
-  if (apiKey && apiKey !== "YOUR_GEMINI_API_KEY_HERE" && !apiKey.includes("PLACEHOLDER") && apiKey.trim() !== "") {
-    const cleanKey = apiKey.trim();
-    const prompt = `
-      You are a professional educational curriculum designer and career advisor.
-      Generate a detailed week-by-week study roadmap based on:
-      
-      Goal: ${goal}
-      Time Available: ${timeAvailable} (e.g., "6 months", "30 days")
-      
-      Provide a chronological schedule. Return the output in strict JSON format like this:
-      {
-        "goal": "${goal}",
-        "duration": "${timeAvailable}",
-        "targetAudience": "Beginner to Intermediate",
-        "weeks": [
-          {
-            "week": "Week 1-2",
-            "topic": "Fundamentals of Goal X",
-            "tasks": ["Read articles on core theory", "Complete lab exercises", "Build simple practice sandbox"],
-            "resources": "Google Scholar, YouTube crash courses, free coding resources"
-          }
-        ]
-      }
-      
-      Limit your weekly breakdown to exactly 4-6 chronological milestone periods to keep it readable.
-    `;
+  try {
+    const response = await fetch("http://localhost:5000/generate-roadmap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, timeAvailable })
+    });
     
-    // --- ROUTE A: OPENAI ROADMAP ---
-    if (cleanKey.startsWith("sk-")) {
-      try {
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${cleanKey}`
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            response_format: { type: "json_object" },
-            messages: [{ role: "user", content: prompt + " Output pure raw JSON only. Do not wrap in markdown tags." }]
-          })
-        });
-        
-        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-        const data = await response.json();
-        return JSON.parse(data.choices[0].message.content);
-      } catch (error) {
-        console.error("OpenAI Roadmap Error: ", error);
-        return generateSimulatedRoadmap(goal, timeAvailable);
-      }
-    }
-    
-    // --- ROUTE B: GEMINI ROADMAP ---
-    try {
-      const jsonText = await generateWithModelFallback(cleanKey, prompt, true);
-      return JSON.parse(jsonText);
-    } catch (error) {
-      console.error("Gemini Roadmap Error: ", error);
-      return generateSimulatedRoadmap(goal, timeAvailable);
-    }
-  } else {
+    if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+    const data = await response.json();
+    return JSON.parse(data.jsonText);
+  } catch (error) {
+    console.error("Backend Roadmap Error, loading simulated roadmap: ", error);
     return generateSimulatedRoadmap(goal, timeAvailable);
   }
 };
