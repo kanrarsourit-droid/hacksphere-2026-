@@ -478,6 +478,19 @@ export const uploadStudyNote = async (file, fileName, subject, userId, userRole 
     
     // 3. Increment total uploaded notes in User Profile
     await incrementUserNotesCount(userId);
+
+    // 4. Cache locally so it is ALWAYS available, even if switching between sandbox & cloud modes!
+    try {
+      const cachedNote = { id: docRef.id, ...noteData };
+      const localNotes = JSON.parse(localStorage.getItem('local_notes') || '[]');
+      if (!localNotes.some(n => n.fileName === fileName && n.subject === subject)) {
+        localNotes.push(cachedNote);
+        localStorage.setItem('local_notes', JSON.stringify(localNotes));
+        incrementLocalNotesCount();
+      }
+    } catch (cacheErr) {
+      console.warn("Failed to cache uploaded note locally:", cacheErr);
+    }
     
     return { id: docRef.id, ...noteData };
   };
@@ -522,11 +535,11 @@ const uploadNoteLocally = async (file, fileName, subject, userId, uploadDate, is
   };
 
   const localNotes = JSON.parse(localStorage.getItem('local_notes') || '[]');
-  localNotes.push(noteData);
-  localStorage.setItem('local_notes', JSON.stringify(localNotes));
-
-  // Update profile notesCount
-  incrementLocalNotesCount();
+  if (!localNotes.some(n => n.fileName === fileName && n.subject === subject)) {
+    localNotes.push(noteData);
+    localStorage.setItem('local_notes', JSON.stringify(localNotes));
+    incrementLocalNotesCount();
+  }
 
   return noteData;
 };
@@ -554,6 +567,28 @@ export const getUserNotes = async (userId, userRole = 'student') => {
         }
       }
     });
+
+    // Merge in any unique local sandbox notes so they NEVER vanish when switching database sessions!
+    try {
+      const localNotes = JSON.parse(localStorage.getItem('local_notes') || '[]');
+      localNotes.forEach(localNote => {
+        const isDuplicate = notes.some(n => n.fileName === localNote.fileName && n.subject === localNote.subject);
+        if (!isDuplicate) {
+          if (userRole === 'teacher') {
+            if (localNote.uploadedBy === userId) {
+              notes.push(localNote);
+            }
+          } else {
+            if (localNote.isPublic || localNote.uploadedBy === userId) {
+              notes.push(localNote);
+            }
+          }
+        }
+      });
+    } catch (mergeErr) {
+      console.warn("Failed to synchronize local notes cache:", mergeErr);
+    }
+
     // Sort desc
     notes.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
     return notes;

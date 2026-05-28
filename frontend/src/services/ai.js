@@ -12,6 +12,23 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+// Helper for timing out fetch requests if the backend is stopped or sleeping
+const fetchWithTimeout = async (url, options = {}, timeoutMs = 3000) => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+};
+
 // ----------------------------------------------------
 // MODEL FALLBACK ENGINE (FOR GEMINI)
 // ----------------------------------------------------
@@ -50,11 +67,11 @@ export const generateNoteSummary = async (fileName, subject, extractedText = "")
   const defaultText = extractedText || `This is a study note uploaded for the subject ${subject} named "${fileName}".`;
   
   try {
-    const response = await fetch("http://localhost:5000/generate-summary", {
+    const response = await fetchWithTimeout("http://127.0.0.1:5000/generate-summary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fileName, subject, extractedText: defaultText })
-    });
+    }, 3000);
     
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const data = await response.json();
@@ -98,11 +115,11 @@ const parseSummaryResponse = (text) => {
 
 export const generateQuizFromNote = async (fileName, subject, quizType, noteContent = "") => {
   try {
-    const response = await fetch("http://localhost:5000/generate-quiz", {
+    const response = await fetchWithTimeout("http://127.0.0.1:5000/generate-quiz", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fileName, subject, quizType, noteContent })
-    });
+    }, 3000);
     
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const data = await response.json();
@@ -119,11 +136,11 @@ export const generateQuizFromNote = async (fileName, subject, quizType, noteCont
 
 export const solveAcademicDoubt = async (chatHistory, newQuestion, subjectContext = "General") => {
   try {
-    const response = await fetch("http://localhost:5000/ask-ai", {
+    const response = await fetchWithTimeout("http://127.0.0.1:5000/ask-ai", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chatHistory, newQuestion, subjectContext })
-    });
+    }, 3000);
     
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const data = await response.json();
@@ -140,11 +157,11 @@ export const solveAcademicDoubt = async (chatHistory, newQuestion, subjectContex
 
 export const generateStudyRoadmap = async (goal, timeAvailable) => {
   try {
-    const response = await fetch("http://localhost:5000/generate-roadmap", {
+    const response = await fetchWithTimeout("http://127.0.0.1:5000/generate-roadmap", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ goal, timeAvailable })
-    });
+    }, 3000);
     
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const data = await response.json();

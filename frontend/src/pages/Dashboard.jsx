@@ -33,6 +33,12 @@ const Dashboard = ({ activeUser, onTabChange }) => {
   const [avgScore, setAvgScore] = useState(0);
   const [activities, setActivities] = useState([]);
 
+  // Dynamic Chart States
+  const [weeklyStudyData, setWeeklyStudyData] = useState([]);
+  const [subjectMasteryData, setSubjectMasteryData] = useState([]);
+  const [lackingSubject, setLackingSubject] = useState(null);
+  const [strongestSubject, setStrongestSubject] = useState(null);
+
   const isTeacher = activeUser?.role === 'teacher';
 
   // Load actual counts from services
@@ -114,6 +120,77 @@ const Dashboard = ({ activeUser, onTabChange }) => {
         combined.sort((a, b) => b.time - a.time);
         setActivities(combined.slice(0, 4)); // Show top 4 activities
 
+        // Calculate dynamic analytics data based on active role
+        if (isTeacher) {
+          const mathCount = notes.filter(n => n.subject.toLowerCase().includes('math')).length;
+          const physicsCount = notes.filter(n => n.subject.toLowerCase().includes('physic')).length;
+          const chemistryCount = notes.filter(n => n.subject.toLowerCase().includes('chemist')).length;
+          const compSciCount = notes.filter(n => n.subject.toLowerCase().includes('computer') || n.subject.toLowerCase().includes('comp') || n.subject.toLowerCase().includes('cs')).length;
+
+          const teacherCoverage = [
+            { name: 'Math', coverage: Math.min(100, Math.max(10, mathCount * 25)), color: '#6366f1' },
+            { name: 'Physics', coverage: Math.min(100, Math.max(10, physicsCount * 25)), color: '#8b5cf6' },
+            { name: 'Chemistry', coverage: Math.min(100, Math.max(10, chemistryCount * 25)), color: '#ec4899' },
+            { name: 'CompSci', coverage: Math.min(100, Math.max(10, compSciCount * 25)), color: '#06b6d4' },
+          ];
+          setSubjectMasteryData(teacherCoverage);
+
+          const sortedCoverage = [...teacherCoverage].sort((a, b) => a.coverage - b.coverage);
+          setLackingSubject(sortedCoverage[0]);
+          setStrongestSubject(sortedCoverage[sortedCoverage.length - 1]);
+
+          const baseViews = notes.length * 15;
+          setWeeklyStudyData([
+            { name: 'Mon', views: Math.max(10, Math.round(baseViews * 0.8)) },
+            { name: 'Tue', views: Math.max(20, Math.round(baseViews * 1.2)) },
+            { name: 'Wed', views: Math.max(15, Math.round(baseViews * 0.9)) },
+            { name: 'Thu', views: Math.max(25, Math.round(baseViews * 1.4)) },
+            { name: 'Fri', views: Math.max(18, Math.round(baseViews * 1.1)) },
+            { name: 'Sat', views: Math.max(5, Math.round(baseViews * 0.3)) },
+            { name: 'Sun', views: Math.max(8, Math.round(baseViews * 0.5)) },
+          ]);
+        } else {
+          // Student dynamic mastery calculated from AI quiz average scores in each subject!
+          const getAvgScoreForSubject = (subjName, baseVal) => {
+            const subjectQuizzes = quizzes.filter(q => q.subject.toLowerCase().includes(subjName));
+            if (subjectQuizzes.length > 0) {
+              const total = subjectQuizzes.reduce((sum, q) => sum + (q.score / q.maxScore) * 100, 0);
+              return Math.round(total / subjectQuizzes.length);
+            }
+            // Fallback based on study libraries note uploads count
+            const subjectNotes = notes.filter(n => n.subject.toLowerCase().includes(subjName));
+            return Math.min(95, baseVal + (subjectNotes.length * 12));
+          };
+
+          const mathLevel = getAvgScoreForSubject('math', 50);
+          const physicsLevel = getAvgScoreForSubject('physic', 55);
+          const chemistryLevel = getAvgScoreForSubject('chemist', 45);
+          const compSciLevel = getAvgScoreForSubject('comp', 60);
+
+          const studentMastery = [
+            { name: 'Math', level: mathLevel, color: '#6366f1' },
+            { name: 'Physics', level: physicsLevel, color: '#8b5cf6' },
+            { name: 'Chemistry', level: chemistryLevel, color: '#ec4899' },
+            { name: 'CompSci', level: compSciLevel, color: '#06b6d4' },
+          ];
+          setSubjectMasteryData(studentMastery);
+
+          const sortedMastery = [...studentMastery].sort((a, b) => a.level - b.level);
+          setLackingSubject(sortedMastery[0]);
+          setStrongestSubject(sortedMastery[sortedMastery.length - 1]);
+
+          const baseHours = (notes.length * 1.5) + (quizzes.length * 2.0) + (roadmaps.length * 1.0);
+          setWeeklyStudyData([
+            { name: 'Mon', hours: Math.max(0.5, Math.round(baseHours * 0.7 * 10) / 10) },
+            { name: 'Tue', hours: Math.max(1.0, Math.round(baseHours * 1.1 * 10) / 10) },
+            { name: 'Wed', hours: Math.max(0.8, Math.round(baseHours * 0.8 * 10) / 10) },
+            { name: 'Thu', hours: Math.max(1.5, Math.round(baseHours * 1.3 * 10) / 10) },
+            { name: 'Fri', hours: Math.max(1.2, Math.round(baseHours * 1.0 * 10) / 10) },
+            { name: 'Sat', hours: Math.max(0.2, Math.round(baseHours * 0.4 * 10) / 10) },
+            { name: 'Sun', hours: Math.max(0.4, Math.round(baseHours * 0.6 * 10) / 10) },
+          ]);
+        }
+
       } catch (err) {
         console.error("Dashboard data load error: ", err);
       } finally {
@@ -123,25 +200,6 @@ const Dashboard = ({ activeUser, onTabChange }) => {
 
     loadDashboardData();
   }, [activeUser]);
-
-  // Recharts Chart Data A: Weekly Study Hours (Student) vs. Classroom views on documents (Teacher)
-  const weeklyStudyData = [
-    { name: 'Mon', hours: 2.4, views: 45 },
-    { name: 'Tue', hours: 3.8, views: 82 },
-    { name: 'Wed', hours: 1.5, views: 30 },
-    { name: 'Thu', hours: 4.2, views: 95 },
-    { name: 'Fri', hours: 3.0, views: 72 },
-    { name: 'Sat', hours: 5.5, views: 15 },
-    { name: 'Sun', hours: 4.8, views: 24 },
-  ];
-
-  // Recharts Chart Data B: Subject Mastery (Student) vs. Syllabus Coverage (Teacher)
-  const subjectMasteryData = [
-    { name: 'Math', level: 82, coverage: 60, color: '#6366f1' },
-    { name: 'Physics', level: 90, coverage: 75, color: '#8b5cf6' },
-    { name: 'Chemistry', level: 75, coverage: 40, color: '#ec4899' },
-    { name: 'CompSci', level: 95, coverage: 90, color: '#06b6d4' },
-  ];
 
   // Dynamic welcome quotes
   const studyQuotes = [
@@ -425,16 +483,47 @@ const Dashboard = ({ activeUser, onTabChange }) => {
           </div>
 
           <div className="mt-4 border-t border-white/5 dark:border-white/5 light:border-zinc-200 pt-3 flex justify-between text-xs">
-            <div className="flex flex-col items-center">
-              <span className="font-bold text-white dark:text-white light:text-indigo-900">CS</span>
-              <span className="text-[10px] text-emerald-400">{isTeacher ? "90% Covered" : "95% (Peak)"}</span>
-            </div>
+            {strongestSubject && (
+              <div className="flex flex-col items-center">
+                <span className="font-bold text-white dark:text-white light:text-indigo-900">{strongestSubject.name}</span>
+                <span className="text-[10px] text-emerald-400">
+                  {isTeacher 
+                    ? `${strongestSubject.coverage}% Covered` 
+                    : `${strongestSubject.level}% (Peak 👍)`
+                  }
+                </span>
+              </div>
+            )}
             <div className="h-6 w-[1px] bg-white/10 dark:bg-white/10 light:bg-zinc-200" />
-            <div className="flex flex-col items-center">
-              <span className="font-bold text-white dark:text-white light:text-indigo-900">Chemistry</span>
-              <span className="text-[10px] text-pink-400">{isTeacher ? "40% Covered" : "75% (Needs work)"}</span>
-            </div>
+            {lackingSubject && (
+              <div className="flex flex-col items-center">
+                <span className="font-bold text-white dark:text-white light:text-indigo-900">{lackingSubject.name}</span>
+                <span className="text-[10px] text-pink-400">
+                  {isTeacher 
+                    ? `${lackingSubject.coverage}% Covered` 
+                    : `${lackingSubject.level}% (Needs work ⚠️)`
+                  }
+                </span>
+              </div>
+            )}
           </div>
+
+          {!isTeacher && lackingSubject && (
+            <div className="mt-4 p-3.5 bg-purple-500/5 rounded-xl border border-purple-500/10 text-[11px] leading-relaxed text-slate-400 dark:text-slate-400 light:text-zinc-600">
+              <span className="font-bold text-purple-400 dark:text-purple-400 light:text-indigo-700 flex items-center gap-1 mb-1">
+                🧠 AI Diagnostic Report
+              </span>
+              You are currently lagging behind in <strong className="text-white dark:text-white light:text-indigo-950 font-bold">{lackingSubject.name}</strong> ({lackingSubject.level}% average). We recommend studying this more by generating a practice quiz!
+            </div>
+          )}
+          {isTeacher && lackingSubject && (
+            <div className="mt-4 p-3.5 bg-purple-500/5 rounded-xl border border-purple-500/10 text-[11px] leading-relaxed text-slate-400 dark:text-slate-400 light:text-zinc-600">
+              <span className="font-bold text-purple-400 dark:text-purple-400 light:text-indigo-700 flex items-center gap-1 mb-1">
+                📊 Classroom Analytics
+              </span>
+              Your lowest curriculum stream is <strong className="text-white dark:text-white light:text-indigo-950 font-bold">{lackingSubject.name}</strong> ({lackingSubject.coverage}% syllabus coverage). Upload more notes to complete the stream!
+            </div>
+          )}
         </GlassCard>
 
       </div>

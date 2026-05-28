@@ -62,67 +62,107 @@ const generateWithModelFallback = async (prompt, forceJson = false) => {
 app.post("/ask-ai", async (req, res) => {
   try {
     const { chatHistory, newQuestion, subjectContext } = req.body;
+
+    // Detect if the student wants a long/detailed answer
+    const q = newQuestion.toLowerCase();
+    const wantsLong = q.includes("detail") || q.includes("explain") || q.includes("step by step") || 
+                      q.includes("in brief") || q.includes("long") || q.includes("elaborate") || 
+                      q.includes("in depth") || q.includes("thoroughly") || q.includes("comprehensive") ||
+                      q.includes("tell me more") || q.includes("full answer") || q.includes("complete");
     
+    const lengthInstruction = wantsLong 
+      ? `\n\n[SYSTEM OVERRIDE]: The student has explicitly requested a LONG and DETAILED response. You MUST write AT LEAST 800-1500 words. Cover every sub-topic, include real-world examples, formulas, diagrams described in text, historical context, comparisons, and step-by-step breakdowns. Use ## headers, ### sub-headers, **bold key terms**, numbered lists, and bullet points extensively. DO NOT summarize. DO NOT cut short. Fill your entire response with rich, educational, valuable content.`
+      : '';
+    
+    let answer = null;
+    let fallbackToGemini = false;
+
     // --- ROUTE A: OPENAI DUAL-SUPPORT ---
     if (hasOpenAI) {
-      const openAiMessages = [
-        { 
-          role: "system", 
-          content: `You are "GPT Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
-Always start your responses in a welcoming, student-friendly tone (e.g., "Hi student! How are you doing today? Let's tackle this query together!").
-Provide a brief, high-impact explanation of the core concept first. 
-Always end your response by actively asking if the student wants to learn more, using exactly or similar to:
-"Would you further want me to explain this in more detail, or guide you through a specific sub-topic?"`
-        }
-      ];
+      try {
+        const openAiMessages = [
+          { 
+            role: "system", 
+            content: `You are "GPT Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
+Always start your responses in a welcoming, student-friendly tone.
 
-      // Convert chat history
-      chatHistory.forEach(msg => {
-        openAiMessages.push({
-          role: msg.sender === 'user' ? 'user' : 'assistant',
-          content: msg.text
+RESPONSE LENGTH RULES:
+- For simple questions ("what is X?"), give a clear 2-3 paragraph answer.
+- For ANY request containing words like "explain", "detail", "step by step", "in brief", "long answer", "elaborate", "in depth", or "comprehensive": you MUST write an EXTREMELY LONG, THOROUGH response. Minimum 800 words. Cover every angle, sub-topic, example, formula, and real-world application.
+- Use rich Markdown formatting: ## headers, ### sub-headers, **bold**, numbered lists, bullet points, code blocks, and LaTeX formulas.
+- NEVER say "I'll keep it brief" or "In short" when the student wants detail. ALWAYS give MORE than expected.
+
+Always end by asking if the student wants to explore further.`
+          }
+        ];
+
+        // Convert chat history
+        chatHistory.forEach(msg => {
+          openAiMessages.push({
+            role: msg.sender === 'user' ? 'user' : 'assistant',
+            content: msg.text
+          });
         });
-      });
 
-      // Add new question
-      openAiMessages.push({
-        role: "user",
-        content: newQuestion
-      });
+        // Add new question with length reinforcement
+        openAiMessages.push({
+          role: "user",
+          content: newQuestion + lengthInstruction
+        });
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: openAiMessages
-      });
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          max_tokens: 16384,
+          messages: openAiMessages
+        });
 
-      return res.json({ answer: response.choices[0].message.content });
+        answer = response.choices[0].message.content;
+      } catch (err) {
+        console.warn("⚠️ OpenAI API Call Failed (e.g. out of credits). Falling back to Google Gemini... Error:", err.message || err);
+        fallbackToGemini = true;
+      }
     }
 
-    // --- ROUTE B: GEMINI DUAL-SUPPORT ---
-    const formattedHistory = chatHistory.map(msg => {
-      return `${msg.sender === 'user' ? 'Student' : 'AI Tutor'}: ${msg.text}`;
-    }).join('\n');
-    
-    const prompt = `
-      You are "Gemini Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
-      Always start your responses in a welcoming, student-friendly tone (e.g., "Hi student! How are you doing today? Let's tackle this query together!").
+    // --- ROUTE B: GEMINI DUAL-SUPPORT / FALLBACK ---
+    if (!answer || fallbackToGemini) {
+      if (!geminiKey) {
+        throw new Error("OpenAI call failed and no Gemini API Key is configured in backend/.env!");
+      }
       
-      Provide a brief, high-impact explanation of the core concept first. 
-      Always end your response by actively asking if the student wants to learn more, using exactly or similar to:
-      "Would you further want me to explain this in more detail, or guide you through a specific sub-topic?"
+      if (!genAI) {
+        genAI = new GoogleGenerativeAI(geminiKey);
+      }
+
+      const formattedHistory = chatHistory.map(msg => {
+        return `${msg.sender === 'user' ? 'Student' : 'AI Tutor'}: ${msg.text}`;
+      }).join('\n');
       
-      Subject Context: ${subjectContext || "General"}
+      const prompt = `
+        You are "Gemini Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
+        Always start your responses in a welcoming, student-friendly tone.
+        
+        RESPONSE LENGTH RULES:
+        - For simple questions ("what is X?"), give a clear 2-3 paragraph answer.
+        - For ANY request containing words like "explain", "detail", "step by step", "in brief", "long answer", "elaborate", "in depth", or "comprehensive": you MUST write an EXTREMELY LONG, THOROUGH response. Minimum 800 words. Cover every angle, sub-topic, example, formula, and real-world application.
+        - Use rich Markdown formatting: ## headers, ### sub-headers, **bold**, numbered lists, bullet points, code blocks, and LaTeX formulas.
+        - NEVER say "I'll keep it brief" or "In short" when the student wants detail. ALWAYS give MORE than expected.
+        
+        Always end by asking if the student wants to explore further.
+        
+        Subject Context: ${subjectContext || "General"}
+        
+        Chat Log:
+        ${formattedHistory}
+        
+        New Student Doubt: ${newQuestion}${wantsLong ? '\n\n[SYSTEM OVERRIDE]: The student has explicitly requested a LONG and DETAILED response. You MUST write AT LEAST 800-1500 words. Cover every sub-topic, include real-world examples, formulas, diagrams described in text, historical context, comparisons, and step-by-step breakdowns. Use ## headers, ### sub-headers, **bold key terms**, numbered lists, and bullet points extensively. DO NOT summarize. DO NOT cut short.' : ''}
+        
+        Response (as Gemini Student Mentor):
+      `;
       
-      Chat Log:
-      ${formattedHistory}
-      
-      New Student Doubt: ${newQuestion}
-      
-      Response (as Gemini Student Mentor):
-    `;
-    
-    const text = await generateWithModelFallback(prompt, false);
-    res.json({ answer: text });
+      answer = await generateWithModelFallback(prompt, false);
+    }
+
+    res.json({ answer });
   } catch (error) {
     console.error("Backend Chatbot Error:", error);
     res.status(500).json({ error: error.message || "Failed to process doubt" });
