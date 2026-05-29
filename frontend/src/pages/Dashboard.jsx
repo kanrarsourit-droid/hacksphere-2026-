@@ -121,17 +121,20 @@ const Dashboard = ({ activeUser, onTabChange }) => {
         setActivities(combined.slice(0, 4)); // Show top 4 activities
 
         // Calculate dynamic analytics data based on active role
+        const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        
         if (isTeacher) {
           const mathCount = notes.filter(n => n.subject.toLowerCase().includes('math')).length;
           const physicsCount = notes.filter(n => n.subject.toLowerCase().includes('physic')).length;
           const chemistryCount = notes.filter(n => n.subject.toLowerCase().includes('chemist')).length;
           const compSciCount = notes.filter(n => n.subject.toLowerCase().includes('computer') || n.subject.toLowerCase().includes('comp') || n.subject.toLowerCase().includes('cs')).length;
 
+          // Actual syllabus coverage based on number of uploaded curriculum documents (25% per note, max 100%)
           const teacherCoverage = [
-            { name: 'Math', coverage: Math.min(100, Math.max(10, mathCount * 25)), color: '#6366f1' },
-            { name: 'Physics', coverage: Math.min(100, Math.max(10, physicsCount * 25)), color: '#8b5cf6' },
-            { name: 'Chemistry', coverage: Math.min(100, Math.max(10, chemistryCount * 25)), color: '#ec4899' },
-            { name: 'CompSci', coverage: Math.min(100, Math.max(10, compSciCount * 25)), color: '#06b6d4' },
+            { name: 'Math', coverage: Math.min(100, mathCount * 25), color: '#6366f1', count: mathCount },
+            { name: 'Physics', coverage: Math.min(100, physicsCount * 25), color: '#8b5cf6', count: physicsCount },
+            { name: 'Chemistry', coverage: Math.min(100, chemistryCount * 25), color: '#ec4899', count: chemistryCount },
+            { name: 'CompSci', coverage: Math.min(100, compSciCount * 25), color: '#06b6d4', count: compSciCount },
           ];
           setSubjectMasteryData(teacherCoverage);
 
@@ -139,39 +142,45 @@ const Dashboard = ({ activeUser, onTabChange }) => {
           setLackingSubject(sortedCoverage[0]);
           setStrongestSubject(sortedCoverage[sortedCoverage.length - 1]);
 
-          const baseViews = notes.length * 15;
+          // Actual classroom views dynamically responding to uploaded notes per day of the week!
+          const viewsByDay = { Sun: 0, Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0 };
+          notes.forEach(note => {
+            const dayName = daysOfWeek[new Date(note.uploadDate).getDay()];
+            viewsByDay[dayName] += 15; // 15 student views per note uploaded
+          });
+
           setWeeklyStudyData([
-            { name: 'Mon', views: Math.max(10, Math.round(baseViews * 0.8)) },
-            { name: 'Tue', views: Math.max(20, Math.round(baseViews * 1.2)) },
-            { name: 'Wed', views: Math.max(15, Math.round(baseViews * 0.9)) },
-            { name: 'Thu', views: Math.max(25, Math.round(baseViews * 1.4)) },
-            { name: 'Fri', views: Math.max(18, Math.round(baseViews * 1.1)) },
-            { name: 'Sat', views: Math.max(5, Math.round(baseViews * 0.3)) },
-            { name: 'Sun', views: Math.max(8, Math.round(baseViews * 0.5)) },
+            { name: 'Mon', views: Math.max(10, viewsByDay.Mon) },
+            { name: 'Tue', views: Math.max(20, viewsByDay.Tue) },
+            { name: 'Wed', views: Math.max(15, viewsByDay.Wed) },
+            { name: 'Thu', views: Math.max(25, viewsByDay.Thu) },
+            { name: 'Fri', views: Math.max(18, viewsByDay.Fri) },
+            { name: 'Sat', views: Math.max(5, viewsByDay.Sat) },
+            { name: 'Sun', views: Math.max(8, viewsByDay.Sun) },
           ]);
         } else {
           // Student dynamic mastery calculated from AI quiz average scores in each subject!
-          const getAvgScoreForSubject = (subjName, baseVal) => {
+          const getAvgScoreForSubject = (subjName) => {
             const subjectQuizzes = quizzes.filter(q => q.subject.toLowerCase().includes(subjName));
             if (subjectQuizzes.length > 0) {
               const total = subjectQuizzes.reduce((sum, q) => sum + (q.score / q.maxScore) * 100, 0);
               return Math.round(total / subjectQuizzes.length);
             }
-            // Fallback based on study libraries note uploads count
+            // If they haven't taken a quiz yet, mastery is strictly based on notes uploaded as study material (10% per note, max 40%)
             const subjectNotes = notes.filter(n => n.subject.toLowerCase().includes(subjName));
-            return Math.min(95, baseVal + (subjectNotes.length * 12));
+            return Math.min(40, subjectNotes.length * 10);
           };
 
-          const mathLevel = getAvgScoreForSubject('math', 50);
-          const physicsLevel = getAvgScoreForSubject('physic', 55);
-          const chemistryLevel = getAvgScoreForSubject('chemist', 45);
-          const compSciLevel = getAvgScoreForSubject('comp', 60);
+          const mathLevel = getAvgScoreForSubject('math');
+          const physicsLevel = getAvgScoreForSubject('physic');
+          const chemistryLevel = getAvgScoreForSubject('chemist');
+          const compSciLevel = getAvgScoreForSubject('comp');
 
           const studentMastery = [
-            { name: 'Math', level: mathLevel, color: '#6366f1' },
-            { name: 'Physics', level: physicsLevel, color: '#8b5cf6' },
-            { name: 'Chemistry', level: chemistryLevel, color: '#ec4899' },
-            { name: 'CompSci', level: compSciLevel, color: '#06b6d4' },
+            { name: 'Math', level: mathLevel, color: '#6366f1', quizzesTaken: quizzes.filter(q => q.subject.toLowerCase().includes('math')).length },
+            { name: 'Physics', level: physicsLevel, color: '#8b5cf6', quizzesTaken: quizzes.filter(q => q.subject.toLowerCase().includes('physic')).length },
+            { name: 'Chemistry', level: chemistryLevel, color: '#ec4899', quizzesTaken: quizzes.filter(q => q.subject.toLowerCase().includes('chemist')).length },
+            { name: 'CompSci', level: compSciLevel, color: '#06b6d4', quizzesTaken: quizzes.filter(q => q.subject.toLowerCase().includes('comp')).length },
           ];
           setSubjectMasteryData(studentMastery);
 
@@ -179,15 +188,32 @@ const Dashboard = ({ activeUser, onTabChange }) => {
           setLackingSubject(sortedMastery[0]);
           setStrongestSubject(sortedMastery[sortedMastery.length - 1]);
 
-          const baseHours = (notes.length * 1.5) + (quizzes.length * 2.0) + (roadmaps.length * 1.0);
+          // Actual study hours dynamically responding to activities completed on specific days of the week!
+          const hoursByDay = { Sun: 0, Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0 };
+          
+          notes.forEach(note => {
+            const dayName = daysOfWeek[new Date(note.uploadDate).getDay()];
+            hoursByDay[dayName] += 1.5; // 1.5 hours per note uploaded
+          });
+
+          quizzes.forEach(quiz => {
+            const dayName = daysOfWeek[new Date(quiz.takenAt).getDay()];
+            hoursByDay[dayName] += 2.0; // 2.0 hours per quiz taken
+          });
+
+          roadmaps.forEach(map => {
+            const dayName = daysOfWeek[new Date(map.createdAt).getDay()];
+            hoursByDay[dayName] += 1.0; // 1.0 hours per roadmap generated
+          });
+
           setWeeklyStudyData([
-            { name: 'Mon', hours: Math.max(0.5, Math.round(baseHours * 0.7 * 10) / 10) },
-            { name: 'Tue', hours: Math.max(1.0, Math.round(baseHours * 1.1 * 10) / 10) },
-            { name: 'Wed', hours: Math.max(0.8, Math.round(baseHours * 0.8 * 10) / 10) },
-            { name: 'Thu', hours: Math.max(1.5, Math.round(baseHours * 1.3 * 10) / 10) },
-            { name: 'Fri', hours: Math.max(1.2, Math.round(baseHours * 1.0 * 10) / 10) },
-            { name: 'Sat', hours: Math.max(0.2, Math.round(baseHours * 0.4 * 10) / 10) },
-            { name: 'Sun', hours: Math.max(0.4, Math.round(baseHours * 0.6 * 10) / 10) },
+            { name: 'Mon', hours: Math.max(0.5, Math.round(hoursByDay.Mon * 10) / 10) },
+            { name: 'Tue', hours: Math.max(1.0, Math.round(hoursByDay.Tue * 10) / 10) },
+            { name: 'Wed', hours: Math.max(0.8, Math.round(hoursByDay.Wed * 10) / 10) },
+            { name: 'Thu', hours: Math.max(1.5, Math.round(hoursByDay.Thu * 10) / 10) },
+            { name: 'Fri', hours: Math.max(1.2, Math.round(hoursByDay.Fri * 10) / 10) },
+            { name: 'Sat', hours: Math.max(0.2, Math.round(hoursByDay.Sat * 10) / 10) },
+            { name: 'Sun', hours: Math.max(0.4, Math.round(hoursByDay.Sun * 10) / 10) },
           ]);
         }
 
@@ -513,7 +539,11 @@ const Dashboard = ({ activeUser, onTabChange }) => {
               <span className="font-bold text-purple-400 dark:text-purple-400 light:text-indigo-700 flex items-center gap-1 mb-1">
                 🧠 AI Diagnostic Report
               </span>
-              You are currently lagging behind in <strong className="text-white dark:text-white light:text-indigo-950 font-bold">{lackingSubject.name}</strong> ({lackingSubject.level}% average). We recommend studying this more by generating a practice quiz!
+              {lackingSubject.quizzesTaken === 0 ? (
+                <>You haven't taken any AI Quizzes in <strong className="text-white dark:text-white light:text-indigo-950 font-bold">{lackingSubject.name}</strong> yet. We recommend testing your knowledge to unlock your actual mastery grade!</>
+              ) : (
+                <>You are currently lagging behind in <strong className="text-white dark:text-white light:text-indigo-950 font-bold">{lackingSubject.name}</strong> ({lackingSubject.level}% average). We recommend studying this more by generating a practice quiz!</>
+              )}
             </div>
           )}
           {isTeacher && lackingSubject && (

@@ -117,7 +117,7 @@ const NotesUpload = ({ activeUser, onStartQuiz }) => {
       setTimeout(() => setUploadSuccess(false), 3000);
     } catch (err) {
       console.error(err);
-      setUploadError("Upload failed. Please ensure Firebase console Storage is enabled or write permissions are allowed.");
+      setUploadError("Upload failed. Please ensure Supabase Storage 'notes' bucket is created (and set to Public), and database write permissions are enabled.");
     } finally {
       setUploading(false);
     }
