@@ -133,33 +133,44 @@ Always end by asking if the student wants to explore further.`
         genAI = new GoogleGenerativeAI(geminiKey);
       }
 
-      const formattedHistory = chatHistory.map(msg => {
-        return `${msg.sender === 'user' ? 'Student' : 'AI Tutor'}: ${msg.text}`;
-      }).join('\n');
+      console.log(`[Gemini Request] Initializing gemini-1.5-flash for question: "${newQuestion}"`);
+
+      // Initialize the modern gemini-1.5-flash model with a strict system instruction!
+      const model = genAI.getGenerativeModel({
+        model: "gemini-1.5-flash",
+        systemInstruction: "You are GradeAssist AI, an educational assistant for students.\nAnswer educational questions clearly in simple readable English.\nDo not generate programming code unless explicitly requested.\nProvide concise, accurate, student-friendly answers."
+      });
+
+      // Isolate and format conversation history strictly to prevent future prompt corruption
+      const promptParts = [];
+      if (subjectContext && subjectContext !== "General") {
+        promptParts.push(`Academic Stream Context: ${subjectContext}`);
+      }
+
+      if (chatHistory && chatHistory.length > 0) {
+        promptParts.push("Prior conversation history (for context only, keep your response focused entirely on the new question below):");
+        // Limit history to the last 4 messages to prevent corruption or context bloat
+        chatHistory.slice(-4).forEach(msg => {
+          promptParts.push(`${msg.sender === 'user' ? 'Student' : 'GradeAssist AI'}: ${msg.text}`);
+        });
+        promptParts.push("--- End of Conversation History ---");
+      }
+
+      promptParts.push(`New Student Question: ${newQuestion}`);
+      promptParts.push("Answer:");
       
-      const prompt = `
-        You are "Gemini Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
-        Always start your responses in a welcoming, student-friendly tone.
-        
-        RESPONSE LENGTH RULES:
-        - For simple questions ("what is X?"), give a clear 2-3 paragraph answer.
-        - For ANY request containing words like "explain", "detail", "step by step", "in brief", "long answer", "elaborate", "in depth", or "comprehensive": you MUST write an EXTREMELY LONG, THOROUGH response. Minimum 800 words. Cover every angle, sub-topic, example, formula, and real-world application.
-        - Use rich Markdown formatting: ## headers, ### sub-headers, **bold**, numbered lists, bullet points, code blocks, and LaTeX formulas.
-        - NEVER say "I'll keep it brief" or "In short" when the student wants detail. ALWAYS give MORE than expected.
-        
-        Always end by asking if the student wants to explore further.
-        
-        Subject Context: ${subjectContext || "General"}
-        
-        Chat Log:
-        ${formattedHistory}
-        
-        New Student Doubt: ${newQuestion}${wantsLong ? '\n\n[SYSTEM OVERRIDE]: The student has explicitly requested a LONG and DETAILED response. You MUST write AT LEAST 800-1500 words. Cover every sub-topic, include real-world examples, formulas, diagrams described in text, historical context, comparisons, and step-by-step breakdowns. Use ## headers, ### sub-headers, **bold key terms**, numbered lists, and bullet points extensively. DO NOT summarize. DO NOT cut short.' : ''}
-        
-        Response (as Gemini Student Mentor):
-      `;
+      const prompt = promptParts.join("\n");
+
+      console.log(`[Gemini Prompt] Sending structured prompt:\n${prompt}\n`);
+
+      // Correct extraction format per requirements
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+
+      console.log(`[Gemini Response] Successfully generated response text:\n${text.substring(0, 150)}...\n`);
       
-      answer = await generateWithModelFallback(prompt, false);
+      answer = text;
     }
 
     res.json({ answer });

@@ -101,7 +101,7 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout, onNavigate }) =
   };
 
   const SidebarContent = () => (
-    <div className="h-full flex flex-col justify-between py-6 px-4">
+    <div className="h-full flex flex-col justify-between py-6 px-4 overflow-y-auto scrollbar-thin">
       <div>
         {/* BRAND BRANDING */}
         <div 
@@ -180,7 +180,7 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout, onNavigate }) =
       </div>
 
       {/* LOWER OPTIONS - THEME & LOGOUT */}
-      <div className="space-y-3.5 pt-6 border-t border-white/5 dark:border-t-white/5 light:border-t-zinc-200/50">
+      <div className="space-y-3.5 pt-6 mt-6 border-t border-white/5 dark:border-t-white/5 light:border-t-zinc-200/50">
         <div className="flex items-center justify-between px-3">
           <span className="text-xs text-slate-500 dark:text-slate-500 light:text-zinc-500">Visual Theme</span>
           <ThemeToggler />
@@ -188,9 +188,9 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout, onNavigate }) =
         
         <button
           onClick={onLogout}
-          className="w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium text-red-400 hover:text-red-300 light:text-red-600 light:hover:text-red-500 hover:bg-red-500/10 dark:hover:bg-red-500/5 light:hover:bg-red-50 transition-all duration-300"
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-red-650 to-red-600 hover:from-red-600 hover:to-red-500 hover:shadow-[0_0_15px_rgba(239,68,68,0.35)] transition-all duration-300 border border-red-500/20"
         >
-          <LogOut className="w-5 h-5" />
+          <LogOut className="w-4.5 h-4.5" />
           <span>Sign Out</span>
         </button>
       </div>

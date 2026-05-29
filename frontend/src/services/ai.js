@@ -133,7 +133,7 @@ export const generateNoteSummary = async (fileName, subject, extractedText = "")
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fileName, subject, extractedText: defaultText })
-    }, 3000);
+    }, 30000);
     
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const data = await response.json();
@@ -246,7 +246,7 @@ export const generateQuizFromNote = async (fileName, subject, quizType, noteCont
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fileName, subject, quizType, noteContent })
-    }, 3000);
+    }, 30000);
     
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const data = await response.json();
@@ -326,7 +326,7 @@ Always end by asking if the student wants to explore further.`;
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chatHistory, newQuestion, subjectContext })
-    }, 3000);
+    }, 30000);
     
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const data = await response.json();
@@ -393,7 +393,7 @@ export const generateStudyRoadmap = async (goal, timeAvailable) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ goal, timeAvailable })
-    }, 3000);
+    }, 30000);
     
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const data = await response.json();

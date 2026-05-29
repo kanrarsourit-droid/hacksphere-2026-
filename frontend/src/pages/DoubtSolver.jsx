@@ -84,60 +84,66 @@ const DoubtSolver = ({ activeUser }) => {
   const formatMessageText = (text) => {
     if (!text) return "";
     
-    // Split text by lines to parse block elements
     const lines = text.split('\n');
-    let inCodeBlock = false;
-    let codeContent = [];
+    const elements = [];
+    let currentCodeBlock = null;
 
-    return lines.map((line, idx) => {
-      // 1. Parse fenced code block entry/exit
-      if (line.startsWith('```')) {
-        if (inCodeBlock) {
-          inCodeBlock = false;
-          const codeString = codeContent.join('\n');
-          codeContent = [];
-          return (
-            <pre key={idx} className="my-3 p-4 bg-zinc-950/90 text-emerald-400 font-mono text-[11px] rounded-xl border border-white/5 overflow-x-auto shadow-inner">
-              <code>{codeString}</code>
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      if (line.trim().startsWith('```')) {
+        if (currentCodeBlock !== null) {
+          // Close code block
+          elements.push(
+            <pre key={`code_${i}`} className="my-3 p-4 bg-zinc-950/90 text-emerald-450 dark:text-emerald-400 font-mono text-[11px] rounded-xl border border-white/5 overflow-x-auto shadow-inner select-text">
+              <code>{currentCodeBlock.join('\n')}</code>
             </pre>
           );
+          currentCodeBlock = null;
         } else {
-          inCodeBlock = true;
-          return null; // Don't render entry string
+          // Start code block
+          currentCodeBlock = [];
+        }
+        continue;
+      }
+
+      if (currentCodeBlock !== null) {
+        currentCodeBlock.push(line);
+      } else {
+        // Normal text line
+        if (line.startsWith('### ')) {
+          elements.push(<h3 key={`h3_${i}`} className="text-sm font-bold text-white dark:text-white light:text-indigo-900 mt-3 mb-1.5">{line.substring(4)}</h3>);
+        } else if (line.startsWith('#### ')) {
+          elements.push(<h4 key={`h4_${i}`} className="text-xs font-bold text-white dark:text-white light:text-indigo-900 mt-2 mb-1">{line.substring(5)}</h4>);
+        } else if (line.trim().startsWith('* ') || line.trim().startsWith('- ')) {
+          const listContent = line.trim().substring(2);
+          elements.push(
+            <li key={`li_${i}`} className="ml-4 list-disc text-xs text-slate-350 dark:text-slate-350 light:text-zinc-700 my-1 leading-relaxed">
+              {parseInlineStyles(listContent)}
+            </li>
+          );
+        } else if (line.trim() === '') {
+          elements.push(<div key={`space_${i}`} className="h-2" />);
+        } else {
+          elements.push(
+            <p key={`p_${i}`} className="text-xs text-slate-350 dark:text-slate-350 light:text-zinc-700 my-1 leading-relaxed">
+              {parseInlineStyles(line)}
+            </p>
+          );
         }
       }
+    }
 
-      // If inside code block, accumulate code text
-      if (inCodeBlock) {
-        codeContent.push(line);
-        return null;
-      }
-
-      // 2. Parse Markdown headers
-      if (line.startsWith('### ')) {
-        return <h3 key={idx} className="text-sm font-bold text-white dark:text-white light:text-indigo-900 mt-3 mb-1.5">{line.substring(4)}</h3>;
-      }
-      if (line.startsWith('#### ')) {
-        return <h4 key={idx} className="text-xs font-bold text-white dark:text-white light:text-indigo-900 mt-2 mb-1">{line.substring(5)}</h4>;
-      }
-
-      // 3. Parse Markdown lists
-      if (line.trim().startsWith('* ') || line.trim().startsWith('- ')) {
-        return (
-          <li key={idx} className="ml-4 list-disc text-xs text-slate-300 dark:text-slate-300 light:text-zinc-700 my-1 leading-relaxed">
-            {parseInlineStyles(line.trim().substring(2))}
-          </li>
-        );
-      }
-
-      // 4. Default Paragraph
-      if (line.trim() === '') return <div key={idx} className="h-2" />;
-      return (
-        <p key={idx} className="text-xs text-slate-300 dark:text-slate-300 light:text-zinc-700 my-1 leading-relaxed">
-          {parseInlineStyles(line)}
-        </p>
+    // Flush any open code block safely to prevent silent failure or empty UI!
+    if (currentCodeBlock !== null && currentCodeBlock.length > 0) {
+      elements.push(
+        <pre key="code_flush" className="my-3 p-4 bg-zinc-950/90 text-emerald-450 dark:text-emerald-400 font-mono text-[11px] rounded-xl border border-white/5 overflow-x-auto shadow-inner select-text">
+          <code>{currentCodeBlock.join('\n')}</code>
+        </pre>
       );
-    });
+    }
+
+    return elements;
   };
 
   // Helper to parse bold text (**word**)
