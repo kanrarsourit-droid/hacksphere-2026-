@@ -14,6 +14,7 @@ import Roadmap from './pages/Roadmap';
 import Profile from './pages/Profile';
 import PortalHome from './pages/PortalHome';
 import NoticeBoard from './pages/NoticeBoard';
+import Statistics from './pages/Statistics';
 import Features from './pages/Features';
 import Subjects from './pages/Subjects';
 import AITools from './pages/AITools';
@@ -74,15 +75,36 @@ function App() {
       }
     }, 2500);
 
-    const unsubscribe = listenToAuthChanges((user) => {
+    const unsubscribe = listenToAuthChanges(async (user) => {
       resolved = true;
       clearTimeout(failsafeTimer);
       
-      setActiveUser(user);
-      setLoadingSession(false);
-      
-      // Auto-transition to dashboard if user logs in
       if (user) {
+        // Strict role bypass check for both standard and Google SSO
+        const selectedRole = localStorage.getItem('skillsync_oauth_role') || user.role;
+        
+        if (user.role && selectedRole && user.role !== selectedRole) {
+          console.warn("🔐 SkillSync Security: Role Mismatch Detected! User role:", user.role, "Chosen role:", selectedRole);
+          
+          // Clear active session to prevent access
+          localStorage.removeItem('active_mock_session');
+          localStorage.removeItem('skillsync_current_page');
+          localStorage.removeItem('skillsync_active_tab');
+          localStorage.removeItem('skillsync_oauth_role');
+          
+          await logoutUser();
+          
+          setActiveUser(null);
+          setCurrentPage('login');
+          
+          sessionStorage.setItem('skillsync_auth_error', `This email address is registered as a ${user.role === 'teacher' ? 'Teacher' : 'Student'}. Please log in using the correct portal.`);
+          window.dispatchEvent(new Event('skillsync_role_mismatch'));
+          setLoadingSession(false);
+          return;
+        }
+
+        setActiveUser(user);
+        setLoadingSession(false);
         setCurrentPage('dashboard');
         
         // Restore their exact tab they had open before reload!
@@ -108,13 +130,16 @@ function App() {
   // Handle Logout
   const handleLogout = async () => {
     try {
+      // 1. Immediately clear local states and session cache so UI updates instantly
       localStorage.removeItem('active_mock_session');
       localStorage.removeItem('skillsync_current_page');
       localStorage.removeItem('skillsync_active_tab');
-      await logoutUser();
       setActiveUser(null);
       setCurrentPage('home');
       setActiveTab('home');
+      
+      // 2. Perform DB logout in the background without blocking the UI
+      logoutUser().catch(err => console.warn("Background signout issue:", err));
     } catch (e) {
       console.error("Logout failed:", e);
     }
@@ -201,6 +226,10 @@ function App() {
               activeUser={activeUser} 
               onStartQuiz={handleStartQuizFromNote} 
             />
+          )}
+          
+          {activeTab === 'stats' && (
+            <Statistics activeUser={activeUser} />
           )}
           
           {activeTab === 'quiz' && (

@@ -29,12 +29,14 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = 3000) => {
   }
 };
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5001";
+
 // ----------------------------------------------------
 // MODEL FALLBACK ENGINE (FOR GEMINI)
 // ----------------------------------------------------
 // Cycles through available model variations to handle regional or API-version blocks dynamically.
 const generateWithModelFallback = async (apiKey, prompt, forceJson = false) => {
-  const models = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+  const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro", "gemini-flash-latest"];
   const genAI = new GoogleGenerativeAI(apiKey);
   
   let lastError = null;
@@ -67,7 +69,7 @@ export const generateNoteSummary = async (fileName, subject, extractedText = "")
   const defaultText = extractedText || `This is a study note uploaded for the subject ${subject} named "${fileName}".`;
   
   try {
-    const response = await fetchWithTimeout("http://127.0.0.1:5000/generate-summary", {
+    const response = await fetchWithTimeout(`${BACKEND_URL}/generate-summary`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fileName, subject, extractedText: defaultText })
@@ -115,7 +117,7 @@ const parseSummaryResponse = (text) => {
 
 export const generateQuizFromNote = async (fileName, subject, quizType, noteContent = "") => {
   try {
-    const response = await fetchWithTimeout("http://127.0.0.1:5000/generate-quiz", {
+    const response = await fetchWithTimeout(`${BACKEND_URL}/generate-quiz`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fileName, subject, quizType, noteContent })
@@ -136,7 +138,7 @@ export const generateQuizFromNote = async (fileName, subject, quizType, noteCont
 
 export const solveAcademicDoubt = async (chatHistory, newQuestion, subjectContext = "General") => {
   try {
-    const response = await fetchWithTimeout("http://127.0.0.1:5000/ask-ai", {
+    const response = await fetchWithTimeout(`${BACKEND_URL}/ask-ai`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chatHistory, newQuestion, subjectContext })
@@ -157,7 +159,7 @@ export const solveAcademicDoubt = async (chatHistory, newQuestion, subjectContex
 
 export const generateStudyRoadmap = async (goal, timeAvailable) => {
   try {
-    const response = await fetchWithTimeout("http://127.0.0.1:5000/generate-roadmap", {
+    const response = await fetchWithTimeout(`${BACKEND_URL}/generate-roadmap`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ goal, timeAvailable })

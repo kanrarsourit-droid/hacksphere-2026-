@@ -71,6 +71,17 @@ export const runWithFailover = async (cloudCallback, localCallback, timeoutMs = 
  */
 export const registerUser = async (email, password, displayName, role = 'student') => {
   const cloudFn = async () => {
+    // 0. Strict check: verify if the email is already in the database
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('role')
+      .eq('email', email.trim().toLowerCase())
+      .maybeSingle();
+
+    if (existingUser) {
+      throw new Error("auth/email-already-in-use");
+    }
+
     // 1. Create User in Supabase Auth
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -233,6 +244,8 @@ export const loginUser = async (email, password) => {
  * Single Sign-On with Google
  */
 export const loginWithGoogle = async (role = 'student') => {
+  localStorage.setItem('skillsync_oauth_role', role);
+
   const cloudFn = async () => {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -287,7 +300,17 @@ export const loginWithGoogle = async (role = 'student') => {
     return { success: true, user: mockProfile };
   };
 
-  return runWithFailover(cloudFn, localFn, 300000);
+  // If Supabase is active, ALWAYS attempt actual Google Sign-In pop-up directly!
+  if (isSupabaseActive) {
+    try {
+      return await cloudFn();
+    } catch (err) {
+      console.warn("Actual Google Login failed, falling back to Sandbox:", err);
+      return localFn();
+    }
+  }
+
+  return localFn();
 };
 
 /**
@@ -366,6 +389,51 @@ const updateLocalProfile = (userId, updatedFields) => {
   return { success: false };
 };
 
+const initializeDatabaseProfile = async (user, callback) => {
+  try {
+    const selectedRole = localStorage.getItem('skillsync_oauth_role') || 'student';
+    
+    const newProfile = {
+      uid: user.id,
+      email: user.email,
+      display_name: user.user_metadata?.display_name || user.email.split('@')[0],
+      photo_url: user.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.id}`,
+      role: selectedRole,
+      streak: 1,
+      last_study_date: new Date().toISOString().split('T')[0],
+      notes_count: 0,
+      quiz_count: 0,
+      avg_quiz_score: 0,
+      created_at: new Date().toISOString()
+    };
+    
+    const { error } = await supabase.from('users').upsert(newProfile);
+    if (error) throw error;
+
+    const formatted = {
+      uid: newProfile.uid,
+      email: newProfile.email,
+      displayName: newProfile.display_name,
+      photoURL: newProfile.photo_url,
+      role: newProfile.role,
+      streak: newProfile.streak,
+      lastStudyDate: newProfile.last_study_date,
+      notesCount: newProfile.notes_count,
+      quizCount: newProfile.quiz_count,
+      avgQuizScore: newProfile.avg_quiz_score,
+      createdAt: newProfile.created_at
+    };
+
+    localStorage.setItem('active_mock_session', JSON.stringify(formatted));
+    callback(formatted);
+  } catch (e) {
+    console.error("Failed to initialize Google profile:", e);
+    const basic = { uid: user.id, email: user.email, role: 'student' };
+    localStorage.setItem('active_mock_session', JSON.stringify(basic));
+    callback(basic);
+  }
+};
+
 /**
  * Subscribe to Authentication changes (auto login listener)
  */
@@ -393,9 +461,7 @@ export const listenToAuthChanges = (callback) => {
             localStorage.setItem('active_mock_session', JSON.stringify(formatted));
             callback(formatted);
           } else {
-            const basic = { uid: user.id, email: user.email, role: 'student' };
-            localStorage.setItem('active_mock_session', JSON.stringify(basic));
-            callback(basic);
+            initializeDatabaseProfile(user, callback);
           }
         });
       } else {
@@ -434,9 +500,7 @@ export const listenToAuthChanges = (callback) => {
           localStorage.setItem('active_mock_session', JSON.stringify(formatted));
           callback(formatted);
         } else {
-          const basic = { uid: user.id, email: user.email, role: 'student' };
-          localStorage.setItem('active_mock_session', JSON.stringify(basic));
-          callback(basic);
+          initializeDatabaseProfile(user, callback);
         }
       } else {
         const mockSession = localStorage.getItem('active_mock_session');

@@ -71,6 +71,24 @@ const Login = ({ onLoginSuccess }) => {
     setSuccessMessage("");
   }, [authMethod, isSignup, isForgotPassword]);
 
+  useEffect(() => {
+    const checkAuthErrors = () => {
+      const storedErr = sessionStorage.getItem('skillsync_auth_error');
+      if (storedErr) {
+        setError(storedErr);
+        sessionStorage.removeItem('skillsync_auth_error');
+      }
+    };
+    
+    // Check immediately on mount/render
+    checkAuthErrors();
+    
+    window.addEventListener('skillsync_role_mismatch', checkAuthErrors);
+    return () => {
+      window.removeEventListener('skillsync_role_mismatch', checkAuthErrors);
+    };
+  }, []);
+
   const clearForm = () => {
     setName("");
     setEmail("");

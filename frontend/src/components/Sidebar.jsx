@@ -12,7 +12,8 @@ import {
   Menu,
   X,
   Home as HomeNavIcon,
-  Megaphone
+  Megaphone,
+  BarChart3
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import ThemeToggler from './ThemeToggler';
@@ -70,6 +71,7 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout, onNavigate }) =
         { id: 'notice_board', label: 'Notice Board', icon: Megaphone },
         { id: 'dashboard', label: 'Teacher Console', icon: LayoutDashboard },
         { id: 'notes', label: 'Curriculum Studio', icon: FileText },
+        { id: 'stats', label: 'Classroom Analytics', icon: BarChart3 },
         { id: 'profile', label: 'Teacher Profile', icon: User },
       ]
     : [
@@ -77,6 +79,7 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout, onNavigate }) =
         { id: 'notice_board', label: 'Notice Board', icon: Megaphone },
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { id: 'notes', label: 'Classroom Library', icon: FileText },
+        { id: 'stats', label: 'Study Analytics', icon: BarChart3 },
         { id: 'quiz', label: 'AI Quiz', icon: BrainCircuit },
         { id: 'chatbot', label: 'Doubt Solver', icon: MessageSquareCode },
         { id: 'roadmap', label: 'Roadmap timeline', icon: Map },
