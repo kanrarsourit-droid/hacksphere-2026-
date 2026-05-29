@@ -46,7 +46,7 @@ const NoticeBoard = ({ activeUser, onQuizFinished }) => {
         const seed = [
           {
             id: 'seed-1',
-            text: "Welcome scholars to the SkillSync platform! Explore study timelines, doubt solvers, and mock quizzes.",
+            text: "Welcome scholars to the SyncVerse platform! Explore study timelines, doubt solvers, and mock quizzes.",
             author: "Admin Portal",
             category: "General",
             date: new Date().toLocaleDateString()

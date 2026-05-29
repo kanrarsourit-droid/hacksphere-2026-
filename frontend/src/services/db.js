@@ -883,32 +883,32 @@ const saveQuizLocally = (record) => {
  * Fetch quizzes solved by user
  */
 export const getUserQuizzes = async (userId) => {
-  if (isSupabaseActive) {
-    try {
-      const { data, error } = await supabase
-        .from('quizzes')
-        .select('*')
-        .eq('user_id', userId)
-        .order('taken_at', { ascending: false });
-        
-      if (error) throw error;
+  const cloudFn = async () => {
+    const { data, error } = await supabase
+      .from('quizzes')
+      .select('*')
+      .eq('user_id', userId)
+      .order('taken_at', { ascending: false });
       
-      return data.map(item => ({
-        id: item.id,
-        noteId: item.note_id,
-        userId: item.user_id,
-        subject: item.subject,
-        score: item.score,
-        maxScore: item.max_score,
-        takenAt: item.taken_at
-      }));
-    } catch (e) {
-      return getLocalQuizzes(userId);
-    }
-  } else {
+    if (error) throw error;
+    
+    return data.map(item => ({
+      id: item.id,
+      noteId: item.note_id,
+      userId: item.user_id,
+      subject: item.subject,
+      score: item.score,
+      maxScore: item.max_score,
+      takenAt: item.taken_at
+    }));
+  };
+
+  const localFn = () => {
     return getLocalQuizzes(userId);
-  }
-};
+  };
+
+  return runWithFailover(cloudFn, localFn, 5000);
+ };
 
 const getLocalQuizzes = (userId) => {
   const localQuizzes = JSON.parse(localStorage.getItem('local_quizzes') || '[]');
@@ -970,29 +970,29 @@ const saveRoadmapLocally = (record) => {
  * Get user roadmaps
  */
 export const getUserRoadmaps = async (userId) => {
-  if (isSupabaseActive) {
-    try {
-      const { data, error } = await supabase
-        .from('roadmaps')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
+  const cloudFn = async () => {
+    const { data, error } = await supabase
+      .from('roadmaps')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
       
-      return data.map(item => ({
-        id: item.id,
-        userId: item.user_id,
-        goal: item.goal,
-        weeks: item.weeks,
-        createdAt: item.created_at
-      }));
-    } catch (e) {
-      return getLocalRoadmaps(userId);
-    }
-  } else {
+    if (error) throw error;
+    
+    return data.map(item => ({
+      id: item.id,
+      userId: item.user_id,
+      goal: item.goal,
+      weeks: item.weeks,
+      createdAt: item.created_at
+    }));
+  };
+
+  const localFn = () => {
     return getLocalRoadmaps(userId);
-  }
+  };
+
+  return runWithFailover(cloudFn, localFn, 5000);
 };
 
 const getLocalRoadmaps = (userId) => {

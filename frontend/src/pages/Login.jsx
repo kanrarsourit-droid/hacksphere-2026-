@@ -602,7 +602,7 @@ const Login = ({ onLoginSuccess }) => {
           {/* MOCK SANDBOX SIMULATOR CODE PROMPT DISPLAY */}
           {demoCodeText && !(import.meta.env.VITE_EMAILJS_SERVICE_ID && import.meta.env.VITE_EMAILJS_TEMPLATE_ID && import.meta.env.VITE_EMAILJS_PUBLIC_KEY) && (
             <div className="mb-5 p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-center text-xs animate-bounce shadow-lg">
-              <p className="text-[10px] text-purple-300 font-extrabold uppercase tracking-widest">SkillSync Sandbox OTP</p>
+              <p className="text-[10px] text-purple-300 font-extrabold uppercase tracking-widest">SyncVerse Sandbox OTP</p>
               <h3 className="text-2xl font-black tracking-widest text-white mt-1.5">{demoCodeText}</h3>
               <p className="text-[10px] text-slate-400 mt-1">Copy and paste this 6-digit code below to log in instantly!</p>
             </div>
@@ -963,7 +963,7 @@ const Login = ({ onLoginSuccess }) => {
 
               {/* Mode Toggle Switch */}
               <p className="text-center text-xs text-slate-450 dark:text-slate-400 light:text-zinc-550 mt-6">
-                {isSignup ? "Already have a SkillSync account?" : "New to SkillSync AI?"}{" "}
+                {isSignup ? "Already have a SyncVerse account?" : "New to SyncVerse AI?"}{" "}
                 <button
                   type="button"
                   onClick={handleToggleMode}

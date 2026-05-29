@@ -241,7 +241,7 @@ const PortalHome = ({ activeUser, onTabChange }) => {
         <div className="space-y-3 max-w-2xl text-center md:text-left">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 dark:bg-purple-500/10 light:bg-indigo-50 border border-purple-500/20 text-xs font-bold text-purple-400 dark:text-purple-400 light:text-indigo-700">
             <Sparkles className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '6s' }} />
-            <span>Welcome to SkillSync AI Hub</span>
+            <span>Welcome to SyncVerse AI Hub</span>
           </div>
 
           <h1 className="text-3.5xl font-extrabold tracking-tight text-white dark:text-white light:text-indigo-950 leading-tight">
@@ -558,7 +558,7 @@ const PortalHome = ({ activeUser, onTabChange }) => {
               </div>
 
               <div className="mt-6 pt-3 border-t border-white/5 text-[10px] font-semibold text-center text-slate-500">
-                ⚡ Powered by SkillSync AI Engine
+                ⚡ Powered by SyncVerse AI Engine
               </div>
             </GlassCard>
           </div>

@@ -17,7 +17,7 @@ const Footer = ({ onNavigate }) => {
               <Sparkles className="w-4 h-4 text-white" />
             </div>
             <span className="text-lg font-bold tracking-tight text-white dark:text-white light:text-indigo-900">
-              SkillSync <span className="text-gradient">AI</span>
+              SyncVerse <span className="text-gradient">AI</span>
             </span>
           </div>
           <p className="text-sm text-slate-400 dark:text-slate-400 light:text-zinc-600 max-w-sm">
@@ -50,7 +50,7 @@ const Footer = ({ onNavigate }) => {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 mt-12 pt-6 border-t border-white/5 dark:border-white/5 light:border-zinc-200/50 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-500 light:text-zinc-500 relative z-10">
-        <p>&copy; {new Date().getFullYear()} SkillSync AI. Built for the future of learning.</p>
+        <p>&copy; {new Date().getFullYear()} SyncVerse AI. Built for the future of learning.</p>
         <p className="flex items-center gap-1">
           Made with <Heart className="w-3.5 h-3.5 text-pink-500 fill-pink-500 animate-pulse" /> for HackSphere 2026.
         </p>

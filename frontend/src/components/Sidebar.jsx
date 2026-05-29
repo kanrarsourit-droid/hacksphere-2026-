@@ -112,7 +112,7 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout, onNavigate }) =
             <Sparkles className="w-4.5 h-4.5 text-white animate-pulse" />
           </div>
           <span className="text-lg font-bold tracking-tight text-white dark:text-white light:text-indigo-950">
-            SkillSync <span className="text-gradient">AI</span>
+            SyncVerse <span className="text-gradient">AI</span>
           </span>
         </div>
 
@@ -214,7 +214,7 @@ const Sidebar = ({ activeTab, onTabChange, activeUser, onLogout, onNavigate }) =
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
           <span className="text-base font-bold tracking-tight text-white dark:text-white light:text-indigo-950">
-            SkillSync <span className="text-gradient">AI</span>
+            SyncVerse <span className="text-gradient">AI</span>
           </span>
         </div>
 

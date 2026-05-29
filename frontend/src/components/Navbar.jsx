@@ -46,7 +46,7 @@ const Navbar = ({ activeUser, onNavigate }) => {
             <Sparkles className="w-5 h-5 text-white animate-pulse" />
           </div>
           <span className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-200 to-purple-400 dark:from-white dark:via-indigo-200 dark:to-purple-300 light:from-indigo-900 light:to-purple-700">
-            SkillSync <span className="text-gradient">AI</span>
+            SyncVerse <span className="text-gradient">AI</span>
           </span>
         </div>
 

@@ -40,7 +40,7 @@ const LoadingState = ({ type = "default", message = "AI is thinking..." }) => {
       {/* Messages */}
       <h3 className="text-sm font-semibold text-gradient tracking-wide animate-pulse">{message}</h3>
       <p className="text-xs text-slate-500 dark:text-slate-500 light:text-zinc-400 mt-1 max-w-xs">
-        SkillSync AI is working with Google Gemini to generate high-quality learning materials.
+        SyncVerse AI is working with Google Gemini to generate high-quality learning materials.
       </p>
     </div>
   );
