@@ -61,13 +61,73 @@ const generateWithModelFallback = async (apiKey, prompt, forceJson = false) => {
   throw lastError;
 };
 
+// Direct client-side AI caller supporting both Google Gemini and OpenAI
+const callDirectAI = async (prompt, forceJson = false) => {
+  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || "";
+  if (!apiKey) throw new Error("No API key available");
+
+  if (apiKey.startsWith("sk-")) {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        response_format: forceJson ? { type: "json_object" } : undefined
+      })
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error?.message || `OpenAI API error ${response.status}`);
+    }
+    const data = await response.json();
+    return data.choices[0].message.content;
+  } else {
+    return await generateWithModelFallback(apiKey, prompt, forceJson);
+  }
+};
+
 // ==========================================
 // A. AI NOTE SUMMARIZER
 // ==========================================
 
 export const generateNoteSummary = async (fileName, subject, extractedText = "") => {
   const defaultText = extractedText || `This is a study note uploaded for the subject ${subject} named "${fileName}".`;
+  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || "";
   
+  if (apiKey) {
+    try {
+      const prompt = `
+        You are an expert academic research assistant. 
+        Analyze the following student study material and generate a detailed academic summary:
+        
+        Subject: ${subject}
+        Document Title: ${fileName}
+        Document Text/Content: ${defaultText}
+        
+        Please format your response EXACTLY as a structured output with two parts:
+        1. A comprehensive, beautifully formatted Markdown summary (using headers, bold terms, bullet points).
+        2. A section of exactly 4-5 major "Key Takeaways" or formula sheets that are critical for exams. Separated by | character or listed as a JSON array in your prompt.
+        
+        Format the entire response like this:
+        ---SUMMARY---
+        (Place the detailed markdown summary here)
+        ---TAKEAWAYS---
+        * Takeaway 1
+        * Takeaway 2
+        * Takeaway 3
+      `;
+      const text = await callDirectAI(prompt, false);
+      return parseSummaryResponse(text);
+    } catch (e) {
+      console.error("Direct AI Summary Error, loading simulated response: ", e);
+      return generateSimulatedSummary(fileName, subject);
+    }
+  }
+
   try {
     const response = await fetchWithTimeout(`${BACKEND_URL}/generate-summary`, {
       method: "POST",
@@ -116,6 +176,71 @@ const parseSummaryResponse = (text) => {
 // ==========================================
 
 export const generateQuizFromNote = async (fileName, subject, quizType, noteContent = "") => {
+  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || "";
+  
+  if (apiKey) {
+    try {
+      const prompt = `
+        You are a high school and college professor. Create a study quiz based on this student note:
+        
+        Subject: ${subject}
+        Document: ${fileName}
+        Document Text: ${noteContent || "General academic overview"}
+        Quiz Category Type: ${quizType} (e.g. "mcq", "true_false", or "short_answer")
+        
+        Generate exactly 5 questions of this type. 
+        You MUST return the output in a strict JSON array format.
+        
+        For "mcq" type:
+        [
+          {
+            "question": "The question content here?",
+            "options": ["Option A", "Option B", "Option C", "Option D"],
+            "answer": "Option B",
+            "explanation": "Detailed explanation of why Option B is correct."
+          }
+        ]
+        
+        For "true_false" type:
+        [
+          {
+            "question": "Statement of facts?",
+            "options": ["True", "False"],
+            "answer": "True",
+            "explanation": "Detailed explanation of why this statement is True."
+          }
+        ]
+        
+        For "short_answer" type:
+        [
+          {
+            "question": "What is theory X?",
+            "options": [],
+            "answer": "A short answer key containing core terms that should be matched.",
+            "explanation": "Grading rubric and detailed explanation of theory X."
+          }
+        ]
+        
+        Ensure questions are intellectually stimulating and match the academic level of the subject.
+        ${apiKey.startsWith("sk-") ? "Please output pure raw JSON only. Do not wrap in markdown tags." : ""}
+      `;
+      const jsonText = await callDirectAI(prompt, true);
+      let cleaned = jsonText.trim();
+      if (cleaned.startsWith("```json")) {
+        cleaned = cleaned.substring(7);
+      } else if (cleaned.startsWith("```")) {
+        cleaned = cleaned.substring(3);
+      }
+      if (cleaned.endsWith("```")) {
+        cleaned = cleaned.substring(0, cleaned.length - 3);
+      }
+      return JSON.parse(cleaned.trim());
+    } catch (e) {
+      console.error("Direct AI Quiz Error, loading simulated quiz: ", e);
+      return generateSimulatedQuiz(subject, quizType);
+    }
+  }
+
   try {
     const response = await fetchWithTimeout(`${BACKEND_URL}/generate-quiz`, {
       method: "POST",
@@ -137,6 +262,65 @@ export const generateQuizFromNote = async (fileName, subject, quizType, noteCont
 // ==========================================
 
 export const solveAcademicDoubt = async (chatHistory, newQuestion, subjectContext = "General") => {
+  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || "";
+  
+  if (apiKey) {
+    try {
+      const q = newQuestion.toLowerCase();
+      const wantsLong = q.includes("detail") || q.includes("explain") || q.includes("step by step") || 
+                        q.includes("in brief") || q.includes("long") || q.includes("elaborate") || 
+                        q.includes("in depth") || q.includes("thoroughly") || q.includes("comprehensive") ||
+                        q.includes("tell me more") || q.includes("full answer") || q.includes("complete");
+      
+      const formattedHistory = chatHistory.map(msg => {
+        return `${msg.sender === 'user' ? 'Student' : 'AI Tutor'}: ${msg.text}`;
+      }).join('\n');
+      
+      const isGemini = !apiKey.startsWith("sk-");
+      
+      const systemInstruction = isGemini 
+        ? `You are "Gemini Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
+Always start your responses in a welcoming, student-friendly tone.
+
+RESPONSE LENGTH RULES:
+- For simple questions ("what is X?"), give a clear 2-3 paragraph answer.
+- For ANY request containing words like "explain", "detail", "step by step", "in brief", "long answer", "elaborate", "in depth", or "comprehensive": you MUST write an EXTREMELY LONG, THOROUGH response. Minimum 800 words. Cover every angle, sub-topic, example, formula, and real-world application.
+- Use rich Markdown formatting: ## headers, ### sub-headers, **bold**, numbered lists, bullet points, code blocks, and LaTeX formulas.
+- NEVER say "I'll keep it brief" or "In short" when the student wants detail. ALWAYS give MORE than expected.
+
+Always end by asking if the student wants to explore further.`
+        : `You are "GPT Student Mentor", a warm, friendly, highly intelligent, and motivating study tutor.
+Always start your responses in a welcoming, student-friendly tone.
+
+RESPONSE LENGTH RULES:
+- For simple questions ("what is X?"), give a clear 2-3 paragraph answer.
+- For ANY request containing words like "explain", "detail", "step by step", "in brief", "long answer", "elaborate", "in depth", or "comprehensive": you MUST write an EXTREMELY LONG, THOROUGH response. Minimum 800 words. Cover every angle, sub-topic, example, formula, and real-world application.
+- Use rich Markdown formatting: ## headers, ### sub-headers, **bold**, numbered lists, bullet points, code blocks, and LaTeX formulas.
+- NEVER say "I'll keep it brief" or "In short" when the student wants detail. ALWAYS give MORE than expected.
+
+Always end by asking if the student wants to explore further.`;
+
+      const prompt = `
+        ${systemInstruction}
+        
+        Subject Context: ${subjectContext || "General"}
+        
+        Chat Log:
+        ${formattedHistory}
+        
+        New Student Doubt: ${newQuestion}${wantsLong ? '\n\n[SYSTEM OVERRIDE]: The student has explicitly requested a LONG and DETAILED response. You MUST write AT LEAST 800-1500 words. Cover every sub-topic, include real-world examples, formulas, diagrams described in text, historical context, comparisons, and step-by-step breakdowns. Use ## headers, ### sub-headers, **bold key terms**, numbered lists, and bullet points extensively. DO NOT summarize. DO NOT cut short.' : ''}
+        
+        Response (as ${isGemini ? 'Gemini' : 'GPT'} Student Mentor):
+      `;
+      
+      const answer = await callDirectAI(prompt, false);
+      return answer;
+    } catch (e) {
+      console.error("Direct AI Chatbot Error, loading simulated response: ", e);
+      return simulateChatReply(chatHistory, newQuestion, subjectContext);
+    }
+  }
+
   try {
     const response = await fetchWithTimeout(`${BACKEND_URL}/ask-ai`, {
       method: "POST",
@@ -158,6 +342,52 @@ export const solveAcademicDoubt = async (chatHistory, newQuestion, subjectContex
 // ==========================================
 
 export const generateStudyRoadmap = async (goal, timeAvailable) => {
+  const apiKey = localStorage.getItem('skillsync_gemini_api_key') || "";
+  
+  if (apiKey) {
+    try {
+      const prompt = `
+        You are a professional educational curriculum designer and career advisor.
+        Generate a detailed week-by-week study roadmap based on:
+        
+        Goal: ${goal}
+        Time Available: ${timeAvailable} (e.g., "6 months", "30 days")
+        
+        Provide a chronological schedule. Return the output in strict JSON format like this:
+        {
+          "goal": "${goal}",
+          "duration": "${timeAvailable}",
+          "targetAudience": "Beginner to Intermediate",
+          "weeks": [
+            {
+              "week": "Week 1-2",
+              "topic": "Fundamentals of Goal X",
+              "tasks": ["Read articles on core theory", "Complete lab exercises", "Build simple practice sandbox"],
+              "resources": "Google Scholar, YouTube crash resources, free coding resources"
+            }
+          ]
+        }
+        
+        Limit your weekly breakdown to exactly 4-6 chronological milestone periods to keep it readable.
+        ${apiKey.startsWith("sk-") ? "Output pure raw JSON only. Do not wrap in markdown tags." : ""}
+      `;
+      const jsonText = await callDirectAI(prompt, true);
+      let cleaned = jsonText.trim();
+      if (cleaned.startsWith("```json")) {
+        cleaned = cleaned.substring(7);
+      } else if (cleaned.startsWith("```")) {
+        cleaned = cleaned.substring(3);
+      }
+      if (cleaned.endsWith("```")) {
+        cleaned = cleaned.substring(0, cleaned.length - 3);
+      }
+      return JSON.parse(cleaned.trim());
+    } catch (e) {
+      console.error("Direct AI Roadmap Error, loading simulated roadmap: ", e);
+      return generateSimulatedRoadmap(goal, timeAvailable);
+    }
+  }
+
   try {
     const response = await fetchWithTimeout(`${BACKEND_URL}/generate-roadmap`, {
       method: "POST",
