@@ -1,104 +1,61 @@
 /**
- * SkillSync AI - Database and Authentication Service
+ * SkillSync AI - Database and Authentication Service (Supabase Migrated)
  * 
- * Since you are a beginner, this file is fully commented!
  * It handles both:
- * 1. Live Firebase Mode (when connected to Google's cloud database)
- * 2. Local Storage Demo Mode (when Firebase is uninitialized or not yet activated on the dashboard)
+ * 1. Live Supabase Mode (connected to your free Postgres cloud database)
+ * 2. Local Storage Demo Mode (when Supabase is offline or unconfigured)
  * 
- * This prevents the application from crashing and ensures a 100% working demo!
+ * This ensures the application is completely robust and stable!
  */
 
-import { 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut, 
-  signInWithPopup,
-  onAuthStateChanged,
-  sendPasswordResetEmail
-} from 'firebase/auth';
-import { 
-  doc, 
-  setDoc, 
-  getDoc, 
-  collection, 
-  addDoc, 
-  getDocs, 
-  query, 
-  where, 
-  orderBy,
-  updateDoc
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { auth, db, storage, googleProvider } from '../firebase/firebase';
+import { supabase, isSupabaseActive } from '../firebase/supabase';
 
-// Helper to determine if Firebase Auth is active & initialized
-const checkFirebaseStatus = () => {
-  try {
-    // If the config keys are default placeholders or empty, we use Local Mode
-    if (!auth || !auth.app || auth.app.options.apiKey === "YOUR_FIREBASE_API_KEY") {
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.warn("Firebase config is missing or invalid. Defaulting to Local Demo Mode.", e);
-    return false;
-  }
-};
-
-export const isFirebaseActive = checkFirebaseStatus();
+// Map Firebase active check to Supabase active check for perfect backward compatibility!
+export const isFirebaseActive = isSupabaseActive;
 
 // ==========================================
 // FAILSAFE CONCURRENCY TIMEOUT ENGINE
 // ==========================================
 
-// Global failover indicator cached in sessionStorage to survive page refreshes!
-let firebaseConnectionFailed = sessionStorage.getItem('skillsync_connection_failed') === 'true';
+// Global failover indicator cached in sessionStorage
+let supabaseConnectionFailed = sessionStorage.getItem('skillsync_supabase_failed') === 'true';
 
 /**
  * Manually switch to offline Sandbox mode globally
  */
 export const setFirebaseOffline = () => {
-  firebaseConnectionFailed = true;
-  sessionStorage.setItem('skillsync_connection_failed', 'true');
+  supabaseConnectionFailed = true;
+  sessionStorage.setItem('skillsync_supabase_failed', 'true');
   console.warn("🔧 SkillSync Failsafe: Switched to sandbox offline database globally.");
 };
 
 /**
- * Failsafe wrapper that races any Firebase async call against a 4-second timeout limit.
- * If the connection stalls due to unconfigured Storage/Firestore, network firewalls,
- * or slow DNS routes, it automatically engages the Local Storage Sandbox,
- * completing the operation in milliseconds and preventing the client UI from freezing!
+ * Failsafe wrapper that races Supabase calls against a 4-second timeout limit.
  */
 export const runWithFailover = async (cloudCallback, localCallback, timeoutMs = 4000) => {
-  if (isFirebaseActive && !firebaseConnectionFailed) {
+  if (isSupabaseActive && !supabaseConnectionFailed) {
     try {
-      // Race Firebase cloud action against a timeout trigger
       const result = await Promise.race([
         cloudCallback(),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("FIREBASE_CONNECTION_TIMEOUT")), timeoutMs)
+          setTimeout(() => reject(new Error("SUPABASE_CONNECTION_TIMEOUT")), timeoutMs)
         )
       ]);
       return result;
     } catch (e) {
       const isConnectionIssue = 
-        e.message === "FIREBASE_CONNECTION_TIMEOUT" || 
-        e.code === "auth/network-request-failed" || 
-        e.code === "auth/internal-error" ||
-        e.code === "auth/quota-exceeded" ||
+        e.message === "SUPABASE_CONNECTION_TIMEOUT" || 
         e.message?.toLowerCase().includes("network") ||
         e.message?.toLowerCase().includes("timeout") ||
-        e.message?.toLowerCase().includes("failed to fetch") ||
-        e.message?.toLowerCase().includes("storage/retry-limit-exceeded");
+        e.message?.toLowerCase().includes("failed to fetch");
         
       if (isConnectionIssue) {
-        console.warn("🔧 SkillSync Failsafe: Firebase connection stalled or timed out. Activating Sandbox mode globally.", e);
-        firebaseConnectionFailed = true;
-        sessionStorage.setItem('skillsync_connection_failed', 'true');
+        console.warn("🔧 SkillSync Failsafe: Supabase connection stalled or timed out. Activating Sandbox mode globally.", e);
+        supabaseConnectionFailed = true;
+        sessionStorage.setItem('skillsync_supabase_failed', 'true');
         return localCallback();
       }
-      throw e; // Rethrow normal database input validations (e.g. wrong password)
+      throw e;
     }
   } else {
     return localCallback();
@@ -114,26 +71,57 @@ export const runWithFailover = async (cloudCallback, localCallback, timeoutMs = 
  */
 export const registerUser = async (email, password, displayName, role = 'student') => {
   const cloudFn = async () => {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-    
-    // Initialize a profile in Firestore for this new user
+    // 1. Create User in Supabase Auth
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          display_name: displayName,
+          role: role
+        }
+      }
+    });
+    if (error) throw error;
+    const user = data.user;
+    if (!user) throw new Error("Supabase Auth Registration Failed");
+
+    // 2. Initialize a profile record in public.users table
     const userProfile = {
-      uid: user.uid,
+      uid: user.id,
       email: user.email,
-      displayName: displayName || user.email.split('@')[0],
-      photoURL: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
+      display_name: displayName || user.email.split('@')[0],
+      photo_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${user.id}`,
       role,
       streak: 1,
-      lastStudyDate: new Date().toISOString().split('T')[0],
-      notesCount: 0,
-      quizCount: 0,
-      avgQuizScore: 0,
-      createdAt: new Date().toISOString()
+      last_study_date: new Date().toISOString().split('T')[0],
+      notes_count: 0,
+      quiz_count: 0,
+      avg_quiz_score: 0,
+      created_at: new Date().toISOString()
     };
-    
-    await setDoc(doc(db, "users", user.uid), userProfile);
-    return { success: true, user: userProfile };
+
+    const { error: dbError } = await supabase.from('users').upsert(userProfile);
+    if (dbError) throw dbError;
+
+    // Format fields back for client state compatibility
+    const clientUser = {
+      uid: userProfile.uid,
+      email: userProfile.email,
+      displayName: userProfile.display_name,
+      photoURL: userProfile.photo_url,
+      role: userProfile.role,
+      streak: userProfile.streak,
+      lastStudyDate: userProfile.last_study_date,
+      notesCount: userProfile.notes_count,
+      quizCount: userProfile.quiz_count,
+      avgQuizScore: userProfile.avg_quiz_score,
+      createdAt: userProfile.created_at
+    };
+
+    // Store mock session as a cache
+    localStorage.setItem('active_mock_session', JSON.stringify(clientUser));
+    return { success: true, user: clientUser };
   };
 
   const localFn = () => {
@@ -164,7 +152,7 @@ export const registerUser = async (email, password, displayName, role = 'student
     return { success: true, user: mockProfile };
   };
 
-  return runWithFailover(cloudFn, localFn, 4000);
+  return runWithFailover(cloudFn, localFn, 5000);
 };
 
 /**
@@ -172,23 +160,53 @@ export const registerUser = async (email, password, displayName, role = 'student
  */
 export const loginUser = async (email, password) => {
   const cloudFn = async () => {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-    
-    // Get their profile from Firestore
-    const profileSnap = await getDoc(doc(db, "users", user.uid));
-    if (profileSnap.exists()) {
-      const profile = profileSnap.data();
-      
-      // Dynamic streak calculation! If they studied yesterday, increment or maintain streak.
-      const updatedProfile = updateStreak(profile);
-      await updateDoc(doc(db, "users", user.uid), updatedProfile);
-      
-      return { success: true, user: updatedProfile };
+    // 1. Sign in via Supabase Auth
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+    if (error) throw error;
+    const user = data.user;
+    if (!user) throw new Error("Login failed");
+
+    // 2. Fetch profile details from users table
+    const { data: profile, error: dbError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('uid', user.id)
+      .single();
+
+    if (dbError || !profile) {
+      // Return a basic profile if record is missing
+      const fallbackProfile = { uid: user.id, email: user.email, role: 'student' };
+      localStorage.setItem('active_mock_session', JSON.stringify(fallbackProfile));
+      return { success: true, user: fallbackProfile };
     }
-    
-    // Fallback if profile doesn't exist in Firestore
-    return { success: true, user: { uid: user.uid, email: user.email } };
+
+    // Map DB camelCase back for React UI
+    const clientUser = {
+      uid: profile.uid,
+      email: profile.email,
+      displayName: profile.display_name,
+      photoURL: profile.photo_url,
+      role: profile.role,
+      streak: profile.streak,
+      lastStudyDate: profile.last_study_date,
+      notesCount: profile.notes_count,
+      quizCount: profile.quiz_count,
+      avgQuizScore: profile.avg_quiz_score,
+      createdAt: profile.created_at
+    };
+
+    // Update study streak
+    const updatedProfile = updateStreak(clientUser);
+    await supabase.from('users').update({
+      streak: updatedProfile.streak,
+      last_study_date: updatedProfile.lastStudyDate
+    }).eq('uid', user.id);
+
+    localStorage.setItem('active_mock_session', JSON.stringify(updatedProfile));
+    return { success: true, user: updatedProfile };
   };
 
   const localFn = () => {
@@ -202,14 +220,13 @@ export const loginUser = async (email, password) => {
     const updatedProfile = updateStreak(matchedUser.profile);
     matchedUser.profile = updatedProfile;
     
-    // Save updated users database back
     localStorage.setItem('mock_users', JSON.stringify(mockUsers));
     localStorage.setItem('active_mock_session', JSON.stringify(updatedProfile));
     
     return { success: true, user: updatedProfile };
   };
 
-  return runWithFailover(cloudFn, localFn, 4000);
+  return runWithFailover(cloudFn, localFn, 5000);
 };
 
 /**
@@ -217,88 +234,34 @@ export const loginUser = async (email, password) => {
  */
 export const loginWithGoogle = async (role = 'student') => {
   const cloudFn = async () => {
-    let authenticatedUser = null;
-    const result = await signInWithPopup(auth, googleProvider);
-    authenticatedUser = result.user;
-    
-    // Check if user profile already exists
-    const userDoc = doc(db, "users", authenticatedUser.uid);
-    const profileSnap = await getDoc(userDoc);
-    
-    let userProfile = {};
-    if (!profileSnap.exists()) {
-      // Initialize new Google user profile
-      userProfile = {
-        uid: authenticatedUser.uid,
-        email: authenticatedUser.email,
-        displayName: authenticatedUser.displayName || authenticatedUser.email.split('@')[0],
-        photoURL: authenticatedUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${authenticatedUser.uid}`,
-        role,
-        streak: 1,
-        lastStudyDate: new Date().toISOString().split('T')[0],
-        notesCount: 0,
-        quizCount: 0,
-        avgQuizScore: 0,
-        createdAt: new Date().toISOString()
-      };
-      await setDoc(userDoc, userProfile);
-    } else {
-      userProfile = updateStreak(profileSnap.data());
-      // Ensure role is preserved or updated if set
-      if (!userProfile.role) {
-        userProfile.role = role;
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin
       }
-      await updateDoc(userDoc, userProfile);
-    }
-    
-    return { success: true, user: userProfile };
+    });
+    if (error) throw error;
+    return { success: true };
   };
 
   const localFn = () => {
-    const user = auth.currentUser;
-    if (user) {
-      const realProfile = {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName || user.email.split('@')[0],
-        photoURL: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
-        role,
-        streak: 1,
-        lastStudyDate: new Date().toISOString().split('T')[0],
-        notesCount: 0,
-        quizCount: 0,
-        avgQuizScore: 0,
-        createdAt: new Date().toISOString()
-      };
-      
-      // Save in local active session so they log in as themselves!
-      localStorage.setItem('active_mock_session', JSON.stringify(realProfile));
-      return { success: true, user: realProfile };
-    }
-    
-    // Sandbox Google Login Account Selector Prompt!
+    // Sandbox Google SSO Simulator
     const defaultEmail = role === 'teacher' ? 'teacher_expert@gmail.com' : 'scholar_student@gmail.com';
     const chosenEmail = window.prompt("🎓 SkillSync Sandbox Google SSO:\n\nPlease enter the Google email address you want to log in with:", defaultEmail);
     
     if (chosenEmail === null) {
-      // User cancelled prompt
       throw new Error("auth/popup-closed-by-user");
     }
     
     const emailToUse = chosenEmail.trim().toLowerCase() || defaultEmail.toLowerCase();
-    
-    // LOOK UP Mock Database first to enforce real-world database rules!
     const mockUsers = JSON.parse(localStorage.getItem('mock_users') || '[]');
     const existingMock = mockUsers.find(u => u.email.toLowerCase() === emailToUse);
     
     if (existingMock) {
-      console.log("♻️ Sandbox SSO: Found existing user profile. Restoring cached session...", existingMock.profile);
-      // Save existing user in active session
       localStorage.setItem('active_mock_session', JSON.stringify(existingMock.profile));
       return { success: true, user: existingMock.profile };
     }
     
-    // Brand new mock Google account registration!
     const namePart = emailToUse.split('@')[0];
     const cleanName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
     const mockUid = 'mock_google_' + Math.random().toString(36).substr(2, 9);
@@ -317,7 +280,6 @@ export const loginWithGoogle = async (role = 'student') => {
       createdAt: new Date().toISOString()
     };
     
-    // Persist new mock profile in mock database list so they can log in via both forms!
     mockUsers.push({ email: emailToUse, password: 'google_oauth_bypass', profile: mockProfile });
     localStorage.setItem('mock_users', JSON.stringify(mockUsers));
     localStorage.setItem('active_mock_session', JSON.stringify(mockProfile));
@@ -333,31 +295,47 @@ export const loginWithGoogle = async (role = 'student') => {
  */
 export const logoutUser = async () => {
   localStorage.removeItem('active_mock_session');
-  if (isFirebaseActive) {
+  if (isSupabaseActive) {
     try {
-      await signOut(auth);
+      await supabase.auth.signOut();
     } catch (e) {
-      console.warn("Firebase signout error:", e);
+      console.warn("Supabase signout error:", e);
     }
   }
   return { success: true };
 };
 
 /**
- * Update user profile details (displayName, photoURL, bio, phone, hobbies)
+ * Update user profile details
  */
 export const updateUserProfile = async (userId, updatedFields) => {
   const cloudFn = async () => {
-    const userDoc = doc(db, "users", userId);
-    await updateDoc(userDoc, updatedFields);
-    
-    // Update local storage representation if active
+    const dbFields = {};
+    if (updatedFields.displayName !== undefined) dbFields.display_name = updatedFields.displayName;
+    if (updatedFields.photoURL !== undefined) dbFields.photo_url = updatedFields.photoURL;
+    if (updatedFields.role !== undefined) dbFields.role = updatedFields.role;
+    if (updatedFields.streak !== undefined) dbFields.streak = updatedFields.streak;
+    if (updatedFields.lastStudyDate !== undefined) dbFields.last_study_date = updatedFields.lastStudyDate;
+    if (updatedFields.notesCount !== undefined) dbFields.notes_count = updatedFields.notesCount;
+    if (updatedFields.quizCount !== undefined) dbFields.quiz_count = updatedFields.quizCount;
+    if (updatedFields.avgQuizScore !== undefined) dbFields.avg_quiz_score = updatedFields.avgQuizScore;
+
+    // Handle arbitrary additional fields
+    Object.keys(updatedFields).forEach(key => {
+      if (!['displayName', 'photoURL', 'role', 'streak', 'lastStudyDate', 'notesCount', 'quizCount', 'avgQuizScore'].includes(key)) {
+        dbFields[key] = updatedFields[key];
+      }
+    });
+
+    const { error } = await supabase.from('users').update(dbFields).eq('uid', userId);
+    if (error) throw error;
+
+    // Update active session representation
     const mockSession = localStorage.getItem('active_mock_session');
     if (mockSession) {
       const parsed = JSON.parse(mockSession);
       if (parsed.uid === userId) {
-        const updated = { ...parsed, ...updatedFields };
-        localStorage.setItem('active_mock_session', JSON.stringify(updated));
+        localStorage.setItem('active_mock_session', JSON.stringify({ ...parsed, ...updatedFields }));
       }
     }
     return { success: true, user: updatedFields };
@@ -367,7 +345,7 @@ export const updateUserProfile = async (userId, updatedFields) => {
     return updateLocalProfile(userId, updatedFields);
   };
 
-  return runWithFailover(cloudFn, localFn, 4000);
+  return runWithFailover(cloudFn, localFn, 5000);
 };
 
 const updateLocalProfile = (userId, updatedFields) => {
@@ -376,7 +354,6 @@ const updateLocalProfile = (userId, updatedFields) => {
     const updated = { ...activeSession, ...updatedFields };
     localStorage.setItem('active_mock_session', JSON.stringify(updated));
     
-    // Also update in mock users list
     const mockUsers = JSON.parse(localStorage.getItem('mock_users') || '[]');
     const index = mockUsers.findIndex(u => u.profile.uid === userId);
     if (index !== -1) {
@@ -390,38 +367,43 @@ const updateLocalProfile = (userId, updatedFields) => {
 };
 
 /**
- * Subscribe to Authentication changes (logs user in/out automatically on reload)
+ * Subscribe to Authentication changes (auto login listener)
  */
 export const listenToAuthChanges = (callback) => {
-  if (isFirebaseActive) {
-    return onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // Fetch profile
-        try {
-          const snap = await getDoc(doc(db, "users", firebaseUser.uid));
-          if (snap.exists()) {
-            const profile = snap.data();
-            localStorage.setItem('active_mock_session', JSON.stringify(profile));
-            callback(profile);
+  if (isSupabaseActive) {
+    // 1. Check existing session active on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        const user = session.user;
+        supabase.from('users').select('*').eq('uid', user.id).single().then(({ data: profile }) => {
+          if (profile) {
+            const formatted = {
+              uid: profile.uid,
+              email: profile.email,
+              displayName: profile.display_name,
+              photoURL: profile.photo_url,
+              role: profile.role,
+              streak: profile.streak,
+              lastStudyDate: profile.last_study_date,
+              notesCount: profile.notes_count,
+              quizCount: profile.quiz_count,
+              avgQuizScore: profile.avg_quiz_score,
+              createdAt: profile.created_at
+            };
+            localStorage.setItem('active_mock_session', JSON.stringify(formatted));
+            callback(formatted);
           } else {
-            const basic = { uid: firebaseUser.uid, email: firebaseUser.email };
+            const basic = { uid: user.id, email: user.email, role: 'student' };
             localStorage.setItem('active_mock_session', JSON.stringify(basic));
             callback(basic);
           }
-        } catch (e) {
-          const basic = { uid: firebaseUser.uid, email: firebaseUser.email };
-          localStorage.setItem('active_mock_session', JSON.stringify(basic));
-          callback(basic);
-        }
+        });
       } else {
-        // Failsafe sandbox session recovery: if Firebase cloud session is unauthenticated,
-        // check if a valid Sandbox local session is active in this browser before logging out!
         const mockSession = localStorage.getItem('active_mock_session');
         if (mockSession) {
           try {
             callback(JSON.parse(mockSession));
           } catch (e) {
-            localStorage.removeItem('active_mock_session');
             callback(null);
           }
         } else {
@@ -429,15 +411,57 @@ export const listenToAuthChanges = (callback) => {
         }
       }
     });
+
+    // 2. Setup auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        const user = session.user;
+        const { data: profile } = await supabase.from('users').select('*').eq('uid', user.id).single();
+        if (profile) {
+          const formatted = {
+            uid: profile.uid,
+            email: profile.email,
+            displayName: profile.display_name,
+            photoURL: profile.photo_url,
+            role: profile.role,
+            streak: profile.streak,
+            lastStudyDate: profile.last_study_date,
+            notesCount: profile.notes_count,
+            quizCount: profile.quiz_count,
+            avgQuizScore: profile.avg_quiz_score,
+            createdAt: profile.created_at
+          };
+          localStorage.setItem('active_mock_session', JSON.stringify(formatted));
+          callback(formatted);
+        } else {
+          const basic = { uid: user.id, email: user.email, role: 'student' };
+          localStorage.setItem('active_mock_session', JSON.stringify(basic));
+          callback(basic);
+        }
+      } else {
+        const mockSession = localStorage.getItem('active_mock_session');
+        if (mockSession) {
+          try {
+            callback(JSON.parse(mockSession));
+          } catch (e) {
+            callback(null);
+          }
+        } else {
+          callback(null);
+        }
+      }
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
   } else {
-    // LOCAL STORAGE AUTH LISTENER
     const mockSession = localStorage.getItem('active_mock_session');
     if (mockSession) {
       callback(JSON.parse(mockSession));
     } else {
       callback(null);
     }
-    // Return a dummy unsubscribe function
     return () => {};
   }
 };
@@ -447,62 +471,92 @@ export const listenToAuthChanges = (callback) => {
 // ==========================================
 
 /**
- * Upload a note (PDF or Image) and record metadata in Firestore
+ * Upload a note and record metadata in public.notes table
  */
 export const uploadStudyNote = async (file, fileName, subject, userId, userRole = 'student', userName = '') => {
   const uploadDate = new Date().toISOString();
   const isPublic = userRole === 'teacher';
   const teacherName = isPublic ? (userName || 'Class Teacher 👨‍🏫') : '';
-  
+
   const cloudFn = async () => {
-    // 1. Upload actual file to Firebase Storage
-    const fileRef = ref(storage, `notes/${userId}/${Date.now()}_${fileName}`);
-    const uploadResult = await uploadBytes(fileRef, file);
-    const fileURL = await getDownloadURL(uploadResult.ref);
-    
-    // 2. Save note meta records to Firestore
+    // 1. Upload note document to Supabase Storage Bucket 'notes'
+    const filePath = `${userId}/${Date.now()}_${fileName}`;
+    const { data: storageData, error: storageErr } = await supabase.storage
+      .from('notes')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+      
+    if (storageErr) throw storageErr;
+
+    // Get Public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('notes')
+      .getPublicUrl(filePath);
+
+    // 2. Insert record in notes table
     const noteData = {
-      fileName,
-      fileURL,
-      fileType: file.type,
+      file_name: fileName,
+      file_url: publicUrl,
+      file_type: file.type,
       subject,
-      uploadedBy: userId,
-      uploadDate,
-      summary: '', // Empty initially, filled by Gemini later
-      keyTakeaways: [],
-      isPublic,
-      teacherName
+      uploaded_by: userId,
+      upload_date: uploadDate,
+      summary: '',
+      key_takeaways: [],
+      is_public: isPublic,
+      teacher_name: teacherName
     };
-    
-    const docRef = await addDoc(collection(db, "notes"), noteData);
-    
-    // 3. Increment total uploaded notes in User Profile
+
+    const { data: insertedData, error: dbErr } = await supabase
+      .from('notes')
+      .insert(noteData)
+      .select()
+      .single();
+
+    if (dbErr) throw dbErr;
+
+    // 3. Increment profile document counters
     await incrementUserNotesCount(userId);
 
-    // 4. Cache locally so it is ALWAYS available, even if switching between sandbox & cloud modes!
+    // Format record back for client compatibility
+    const formattedNote = {
+      id: insertedData.id,
+      fileName: insertedData.file_name,
+      fileURL: insertedData.file_url,
+      fileType: insertedData.file_type,
+      subject: insertedData.subject,
+      uploadedBy: insertedData.uploaded_by,
+      uploadDate: insertedData.upload_date,
+      summary: insertedData.summary,
+      keyTakeaways: insertedData.key_takeaways || [],
+      isPublic: insertedData.is_public,
+      teacherName: insertedData.teacher_name
+    };
+
+    // Concurrently cache locally for Sandbox compatibility
     try {
-      const cachedNote = { id: docRef.id, ...noteData };
       const localNotes = JSON.parse(localStorage.getItem('local_notes') || '[]');
       if (!localNotes.some(n => n.fileName === fileName && n.subject === subject)) {
-        localNotes.push(cachedNote);
+        localNotes.push(formattedNote);
         localStorage.setItem('local_notes', JSON.stringify(localNotes));
         incrementLocalNotesCount();
       }
     } catch (cacheErr) {
       console.warn("Failed to cache uploaded note locally:", cacheErr);
     }
-    
-    return { id: docRef.id, ...noteData };
+
+    return formattedNote;
   };
 
   const localFn = () => {
     return uploadNoteLocally(file, fileName, subject, userId, uploadDate, isPublic, teacherName);
   };
 
-  return runWithFailover(cloudFn, localFn, 4000);
+  return runWithFailover(cloudFn, localFn, 8000);
 };
 
-// Helper to convert File object to Base64 string for permanent Local Storage persistence
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.readAsDataURL(file);
@@ -510,13 +564,11 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
   reader.onerror = (error) => reject(error);
 });
 
-// Helper function to upload note locally
 const uploadNoteLocally = async (file, fileName, subject, userId, uploadDate, isPublic = false, teacherName = '') => {
   let fileURL = "";
   try {
     fileURL = await fileToBase64(file);
   } catch (e) {
-    console.error("Failed to convert file to Base64, falling back to session blob:", e);
     fileURL = URL.createObjectURL(file);
   }
   
@@ -545,30 +597,41 @@ const uploadNoteLocally = async (file, fileName, subject, userId, uploadDate, is
 };
 
 /**
- * Fetch all notes uploaded by a specific user or shared publicly
+ * Fetch all study notes uploaded by users or publicly shared
  */
 export const getUserNotes = async (userId, userRole = 'student') => {
   const cloudFn = async () => {
-    // Query notes collection
-    const q = query(collection(db, "notes"));
-    const snapshot = await getDocs(q);
+    const { data, error } = await supabase.from('notes').select('*');
+    if (error) throw error;
+
     const notes = [];
-    snapshot.forEach(doc => {
-      const data = doc.data();
+    data.forEach(item => {
+      const formatted = {
+        id: item.id,
+        fileName: item.file_name,
+        fileURL: item.file_url,
+        fileType: item.file_type,
+        subject: item.subject,
+        uploadedBy: item.uploaded_by,
+        uploadDate: item.upload_date,
+        summary: item.summary,
+        keyTakeaways: item.key_takeaways || [],
+        isPublic: item.is_public,
+        teacherName: item.teacher_name
+      };
+
       if (userRole === 'teacher') {
-        // Teacher sees only notes uploaded by them
-        if (data.uploadedBy === userId) {
-          notes.push({ id: doc.id, ...data });
+        if (formatted.uploadedBy === userId) {
+          notes.push(formatted);
         }
       } else {
-        // Student sees all teacher-shared notes (isPublic === true) + their own uploads if any
-        if (data.isPublic || data.uploadedBy === userId) {
-          notes.push({ id: doc.id, ...data });
+        if (formatted.isPublic || formatted.uploadedBy === userId) {
+          notes.push(formatted);
         }
       }
     });
 
-    // Merge in any unique local sandbox notes so they NEVER vanish when switching database sessions!
+    // Merge unique notes from local storage cache
     try {
       const localNotes = JSON.parse(localStorage.getItem('local_notes') || '[]');
       localNotes.forEach(localNote => {
@@ -589,7 +652,6 @@ export const getUserNotes = async (userId, userRole = 'student') => {
       console.warn("Failed to synchronize local notes cache:", mergeErr);
     }
 
-    // Sort desc
     notes.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
     return notes;
   };
@@ -598,7 +660,7 @@ export const getUserNotes = async (userId, userRole = 'student') => {
     return getLocalNotes(userId, userRole);
   };
 
-  return runWithFailover(cloudFn, localFn, 3500);
+  return runWithFailover(cloudFn, localFn, 5000);
 };
 
 const getLocalNotes = (userId, userRole = 'student') => {
@@ -611,18 +673,16 @@ const getLocalNotes = (userId, userRole = 'student') => {
 };
 
 /**
- * Delete a study note from cloud or local storage sandbox
+ * Delete a study note
  */
 export const deleteStudyNote = async (noteId, userId) => {
-  if (isFirebaseActive && !noteId.startsWith('local_note_')) {
+  if (isSupabaseActive && !noteId.startsWith('local_note_')) {
     try {
-      const { deleteDoc, doc: fDoc } = await import('firebase/firestore');
-      const noteDoc = fDoc(db, "notes", noteId);
-      await deleteDoc(noteDoc);
+      const { error } = await supabase.from('notes').delete().eq('id', noteId);
+      if (error) throw error;
       await decrementUserNotesCount(userId);
       return true;
     } catch (e) {
-      console.warn("Failed to delete cloud note. Trying local.", e);
       deleteLocalNote(noteId);
       return true;
     }
@@ -650,11 +710,10 @@ const decrementLocalNotesCount = () => {
 
 const decrementUserNotesCount = async (userId) => {
   try {
-    const userDoc = doc(db, "users", userId);
-    const snap = await getDoc(userDoc);
-    if (snap.exists()) {
-      const currentNotes = snap.data().notesCount || 1;
-      await updateDoc(userDoc, { notesCount: Math.max(0, currentNotes - 1) });
+    const { data: profile } = await supabase.from('users').select('notes_count').eq('uid', userId).single();
+    if (profile) {
+      const currentNotes = profile.notes_count || 1;
+      await supabase.from('users').update({ notes_count: Math.max(0, currentNotes - 1) }).eq('uid', userId);
     }
   } catch (e) {
     console.error(e);
@@ -662,16 +721,18 @@ const decrementUserNotesCount = async (userId) => {
 };
 
 /**
- * Update the AI summary of an uploaded note
+ * Update Note Summaries
  */
 export const updateNoteSummary = async (noteId, summary, keyTakeaways) => {
-  if (isFirebaseActive && !noteId.startsWith('local_note_')) {
+  if (isSupabaseActive && !noteId.startsWith('local_note_')) {
     try {
-      const noteDoc = doc(db, "notes", noteId);
-      await updateDoc(noteDoc, { summary, keyTakeaways });
+      const { error } = await supabase
+        .from('notes')
+        .update({ summary, key_takeaways: keyTakeaways })
+        .eq('id', noteId);
+      if (error) throw error;
       return true;
     } catch (e) {
-      console.warn("Failed to update cloud note summary. Updating locally.", e);
       updateLocalNoteSummary(noteId, summary, keyTakeaways);
       return true;
     }
@@ -696,7 +757,7 @@ const updateLocalNoteSummary = (noteId, summary, keyTakeaways) => {
 // ==========================================
 
 /**
- * Save quiz results to Database
+ * Save quiz results
  */
 export const saveQuizResult = async (quizData) => {
   const record = {
@@ -704,16 +765,37 @@ export const saveQuizResult = async (quizData) => {
     takenAt: new Date().toISOString()
   };
 
-  if (isFirebaseActive && !quizData.noteId?.startsWith('local_note_')) {
+  if (isSupabaseActive && !quizData.noteId?.startsWith('local_note_')) {
     try {
-      const docRef = await addDoc(collection(db, "quizzes"), record);
+      const dbData = {
+        note_id: quizData.noteId,
+        user_id: quizData.userId,
+        subject: quizData.subject,
+        score: quizData.score,
+        max_score: quizData.maxScore,
+        taken_at: record.takenAt
+      };
       
-      // Update statistics in User profile
+      const { data, error } = await supabase
+        .from('quizzes')
+        .insert(dbData)
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
       await updateUserQuizStats(quizData.userId, quizData.score);
       
-      return { id: docRef.id, ...record };
+      return {
+        id: data.id,
+        noteId: data.note_id,
+        userId: data.user_id,
+        subject: data.subject,
+        score: data.score,
+        maxScore: data.max_score,
+        takenAt: data.taken_at
+      };
     } catch (e) {
-      console.warn("Failed to save cloud quiz. Saving locally.", e);
       return saveQuizLocally(record);
     }
   } else {
@@ -728,30 +810,34 @@ const saveQuizLocally = (record) => {
   
   localQuizzes.push(quizRecord);
   localStorage.setItem('local_quizzes', JSON.stringify(localQuizzes));
-
-  // Update profile
   updateLocalQuizStats(record.score);
 
   return quizRecord;
 };
 
 /**
- * Get all quizzes solved by user
+ * Fetch quizzes solved by user
  */
 export const getUserQuizzes = async (userId) => {
-  if (isFirebaseActive) {
+  if (isSupabaseActive) {
     try {
-      const q = query(
-        collection(db, "quizzes"), 
-        where("userId", "==", userId),
-        orderBy("takenAt", "desc")
-      );
-      const snapshot = await getDocs(q);
-      const quizzes = [];
-      snapshot.forEach(doc => {
-        quizzes.push({ id: doc.id, ...doc.data() });
-      });
-      return quizzes;
+      const { data, error } = await supabase
+        .from('quizzes')
+        .select('*')
+        .eq('user_id', userId)
+        .order('taken_at', { ascending: false });
+        
+      if (error) throw error;
+      
+      return data.map(item => ({
+        id: item.id,
+        noteId: item.note_id,
+        userId: item.user_id,
+        subject: item.subject,
+        score: item.score,
+        maxScore: item.max_score,
+        takenAt: item.taken_at
+      }));
     } catch (e) {
       return getLocalQuizzes(userId);
     }
@@ -766,7 +852,7 @@ const getLocalQuizzes = (userId) => {
 };
 
 /**
- * Save dynamic roadmap to Database
+ * Save dynamic roadmap
  */
 export const saveRoadmap = async (roadmapData) => {
   const record = {
@@ -774,10 +860,30 @@ export const saveRoadmap = async (roadmapData) => {
     createdAt: new Date().toISOString()
   };
 
-  if (isFirebaseActive) {
+  if (isSupabaseActive) {
     try {
-      const docRef = await addDoc(collection(db, "roadmaps"), record);
-      return { id: docRef.id, ...record };
+      const dbData = {
+        user_id: roadmapData.userId,
+        goal: roadmapData.goal,
+        weeks: roadmapData.weeks,
+        created_at: record.createdAt
+      };
+      
+      const { data, error } = await supabase
+        .from('roadmaps')
+        .insert(dbData)
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      return {
+        id: data.id,
+        userId: data.user_id,
+        goal: data.goal,
+        weeks: data.weeks,
+        createdAt: data.created_at
+      };
     } catch (e) {
       return saveRoadmapLocally(record);
     }
@@ -800,19 +906,23 @@ const saveRoadmapLocally = (record) => {
  * Get user roadmaps
  */
 export const getUserRoadmaps = async (userId) => {
-  if (isFirebaseActive) {
+  if (isSupabaseActive) {
     try {
-      const q = query(
-        collection(db, "roadmaps"), 
-        where("userId", "==", userId),
-        orderBy("createdAt", "desc")
-      );
-      const snapshot = await getDocs(q);
-      const roadmaps = [];
-      snapshot.forEach(doc => {
-        roadmaps.push({ id: doc.id, ...doc.data() });
-      });
-      return roadmaps;
+      const { data, error } = await supabase
+        .from('roadmaps')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+        
+      if (error) throw error;
+      
+      return data.map(item => ({
+        id: item.id,
+        userId: item.user_id,
+        goal: item.goal,
+        weeks: item.weeks,
+        createdAt: item.created_at
+      }));
     } catch (e) {
       return getLocalRoadmaps(userId);
     }
@@ -835,10 +945,9 @@ const updateStreak = (profile) => {
   const lastStudyStr = profile.lastStudyDate;
   
   if (lastStudyStr === todayStr) {
-    return profile; // Already active today
+    return profile;
   }
 
-  // Parse dates
   const today = new Date(todayStr);
   const lastStudy = new Date(lastStudyStr);
   const diffTime = Math.abs(today - lastStudy);
@@ -846,9 +955,9 @@ const updateStreak = (profile) => {
   
   let newStreak = profile.streak;
   if (diffDays === 1) {
-    newStreak += 1; // Consecutive day study!
+    newStreak += 1;
   } else if (diffDays > 1) {
-    newStreak = 1; // Missed days, streak resets
+    newStreak = 1;
   }
 
   return {
@@ -860,11 +969,10 @@ const updateStreak = (profile) => {
 
 const incrementUserNotesCount = async (userId) => {
   try {
-    const userDoc = doc(db, "users", userId);
-    const snap = await getDoc(userDoc);
-    if (snap.exists()) {
-      const currentNotes = snap.data().notesCount || 0;
-      await updateDoc(userDoc, { notesCount: currentNotes + 1 });
+    const { data: profile } = await supabase.from('users').select('notes_count').eq('uid', userId).single();
+    if (profile) {
+      const currentNotes = profile.notes_count || 0;
+      await supabase.from('users').update({ notes_count: currentNotes + 1 }).eq('uid', userId);
     }
   } catch (e) {
     console.error(e);
@@ -882,20 +990,18 @@ const incrementLocalNotesCount = () => {
 
 const updateUserQuizStats = async (userId, newScore) => {
   try {
-    const userDoc = doc(db, "users", userId);
-    const snap = await getDoc(userDoc);
-    if (snap.exists()) {
-      const data = snap.data();
-      const currentQuizzes = data.quizCount || 0;
-      const currentAvg = data.avgQuizScore || 0;
+    const { data: profile } = await supabase.from('users').select('quiz_count, avg_quiz_score').eq('uid', userId).single();
+    if (profile) {
+      const currentQuizzes = profile.quiz_count || 0;
+      const currentAvg = profile.avg_quiz_score || 0;
       
       const newCount = currentQuizzes + 1;
       const newAvg = Math.round(((currentAvg * currentQuizzes) + newScore) / newCount);
       
-      await updateDoc(userDoc, {
-        quizCount: newCount,
-        avgQuizScore: newAvg
-      });
+      await supabase.from('users').update({
+        quiz_count: newCount,
+        avg_quiz_score: newAvg
+      }).eq('uid', userId);
     }
   } catch (e) {
     console.error(e);
@@ -929,11 +1035,14 @@ const updateMockUserList = (updatedProfile) => {
 };
 
 /**
- * Failsafe password reset trigger for Firebase & Sandbox local mode
+ * Failsafe password reset trigger
  */
 export const sendPasswordResetObj = async (email) => {
   const cloudFn = async () => {
-    await sendPasswordResetEmail(auth, email);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`
+    });
+    if (error) throw error;
     return { success: true };
   };
   const localFn = () => {
